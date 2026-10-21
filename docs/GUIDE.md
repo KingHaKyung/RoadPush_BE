@@ -1,0 +1,125 @@
+# RoadPush 백엔드 가이드
+
+> 기준: 마스터 설계·근거 문서 V4, 원 제안서, 사전질의 답변서 1~3, 산업통상부 공고 제2026-614호.
+> 이 문서는 백엔드(`RoadPush_BE`)를 어떻게 구성했고, 제출까지 무엇을 해야 하는지를 정리합니다.
+
+## 1. 무엇을 판단하는가
+
+**"보행자가 차도로 내려가지 않고 계속 걸을 공간이 남아 있는가."**
+장애물의 수나 종류가 아니라, 보도를 따라 입구부터 출구까지 이어지는 통로가 **유지되는지 · 좁아지는지 · 끊겨 차도 우회가 필요한지**를 봅니다.
+
+| 항목 | 기준 (근거) |
+|---|---|
+| 이용자 | 일반 보행자. 휠체어·유모차 기준은 확장 과제 (답변서1·3) |
+| 위험 | 차도 이탈에 따른 차량 충돌. 낙상·범죄 제외 (답변서2) |
+| 단절 | 구조적 단절 + 불법주정차·공사시설·적치물로 막혀 차도 우회가 필요한 상태 (답변서2) |
+| 판정 | 통과 가능 / 좁아짐 / 단절·우회 필요 / 판단 유보 — 좁음과 불통을 구분 (답변서1) |
+| 폭 | 상대비율 기본, 임계값은 팀 결정 (답변서3) |
+| 장면 | 경계가 분명한 보도. 보차혼용도로는 단계적 확장 (답변서1) |
+| 입력 | 사진 중심, 영상은 여러 수단 중 하나. 어떤 데이터든 비식별화 필요 (답변서2) |
+| 사용자 | 지자체·도로관리기관 (B2G). 개인 길찾기·주민 제보는 핵심 범위 아님 (답변서3) |
+| 궤적 | 보행자 궤적은 관측자료일 뿐 정상 보행공간 근거가 아님. 차도 우회 궤적은 이탈 신호 (답변서1) |
+
+주장하지 않는 것: 모든 촬영 시점·모든 적치물·개인 길찾기·모든 교통약자 접근성 검증, 위험도 감소 = 사고 감소.
+
+## 2. 처리 흐름
+
+```
+[F1] 사진 선택 → POST /observations/inspect (EXIF 시각·GPS) → 위치·시각 보완
+     → GET /sites/candidates (반경 안 기존 구간) → 사용자가 기존 구간 확인 or 신규 등록
+     → POST /observations (원본은 storage/, 관측은 DB) → 202
+[F2] 워커가 pending 분석을 집어 AI 분석 모듈 호출
+     노면 semantic mask (SelectStar DeepLab v3+) ┐
+     장애물 instance mask (YOLO11n-seg / YOLOE)  ┴→ 통합 라벨 장면
+     → 단면별 W 추정 · 점유 · 남은 개별 통로 · 입구-출구 연속성
+     → 통과 상태 · 판단 유보 · 상대 위험도 · 근거 → 새 analysis 행 + mask·overlay 파일
+     실행 오류는 3회까지 자동 재시도, 손상·미지원 입력은 바로 실패, 유보는 '완료'로 검수 대상
+[F3] GET /map — 구간별 최신 '촬영' 관측 (처리중·실패면 이전 완료 결과를 reference로 구분)
+[F4] GET /observations/{id} — 원본·overlay·지표·유보 사유·AI/관리자 판정
+[F7] GET /observations?review_status=pending|passability=undetermined|processing_status=failed — 검수 표
+[F5] POST …/reviews (확인·수정, 분석 단위로 저장) · POST …/reanalyze (새 분석) · POST …/action (조치)
+[F6] 같은 구간 재촬영 → F1·F2 → PATCH /actions/{id} {after_observation_id} → GET /sites/{id}/compare
+```
+
+API 상세는 [API.md](API.md), 계산 규칙은 [PASSABILITY.md](PASSABILITY.md).
+
+## 3. 폴더 구조 (마스터 문서 6장)
+
+```
+app/
+  api/                 등록·지도·상세·검수·조치·비교 라우터, 응답 형식(schemas.py = 4.4)
+  services/            관측 처리·AI 호출·저장/조회 (worker, analysis, views, exif, storage, nodelink)
+  ai_engine/           모델 로딩·추론·계산 (DB를 모름)
+    surface/           SelectStar DeepLab v3+ · HuggingFace 비교 모델 · dummy
+    obstacles/         Ultralytics YOLO11n-seg · YOLOE
+    passability/       단면 W · 연속 통로 · 판정(rules) · 상대 위험도(risk) · overlay
+    scene.py           노면 + 장애물 합성, 영상 프레임 융합
+    pipeline.py        AI 모듈 진입점
+  db/                  DB 연결·테이블
+model_weights/         선택 가중치 (Git 제외)
+storage/               서비스 원본·mask·overlay (Git 제외)
+data/                  학습·평가 자료 (Git 제외, 표준노드링크 예시만 포함)
+scripts/               analyze_folder.py — 폴더 일괄 분석·현장 판정 비교
+outputs/  work/        실험 결과·임시 (Git 제외)
+docs/
+```
+
+## 4. 모델 운용 (RTX 4060 Laptop 8GB)
+
+| 역할 | 기본 | 설정 |
+|---|---|---|
+| 보도·차도 | SelectStar DeepLab v3+ (잠정 우선) | `SURFACE_MODEL=selectstar`, TorchScript 파일 → [model_weights/README.md](../model_weights/README.md) |
+| 비교 | Mask2Former·SegFormer (HF) | `SURFACE_MODEL=hf`, `SURFACE_WEIGHTS=<HF 모델 ID>` |
+| 차량 | YOLO11n-seg (COCO) | `OBSTACLE_MODEL=yolo` |
+| 비차량 | YOLOE 구체 카테고리 | `OBSTACLE_WEIGHTS`에 `경로|traffic cone,barricade,…` |
+| 연결 확인 | dummy | 기본값. 모델 없이 API·프론트 확인 |
+
+DeepLab v3+와 YOLO 계열은 8GB에서 추론·미세조정 모두 무리 없습니다. 분석은 큐로 돌아 실시간이 필요 없습니다.
+**실제 모델 경로(selectstar·hf·yolo)는 이 저장소에서 GPU·가중치 없이 작성해 아직 실행 검증이 안 됐습니다.** 첫 실행 때 확인하세요.
+
+## 5. 공모전 제출물과 백엔드가 맡을 일
+
+마감 **10/31(토) 24:00**, `relations2@keit.re.kr` 메일 접수. 주말이라 문의 답변 불가 → 10/30까지 제출 권장.
+
+| 제출물 | 필수 | 백엔드 관련 |
+|---|---|---|
+| 성과보고서 (탐구인력·문제정의·AI 접근·결과 해석·한계·개선) | 필수 | 판정 규칙·현장 평가 결과표·한계 |
+| 참가신청서 (전원 정보, 대표 서명) | 필수 | — |
+| **웹 서비스 테스트 URL** | 필수 | **프론트·백엔드를 외부에서 접속 가능하게 배포** (심사 기간 11월 중순까지 유지) |
+| 데모 시연 영상 2~5분 | 필수 | 업로드 → 분석 → 지도 → 검수·조치 → 재촬영 전후 비교 |
+| GitHub 링크 또는 AI 코드 | 선택 | 이 저장소 (공개 여부·가중치·데이터 재배포 조건 확인) |
+| 학습 데이터 요약·샘플 결과물 | 선택 | `scripts/analyze_folder.py` 결과·overlay |
+
+심사: 대국민 투표 50% + 전문가 50% (문제정의·AI 구현 수준·완성도·사회문제 기여·창의적 응용). 후보작 구현 가점 5점.
+
+**테스트 URL 배포 메모**: 심사 기간 내내 노트북을 켜 둘 수는 없습니다. 선택지:
+1. 클라우드 VM(CPU)에 백엔드 + 프론트 빌드 배포. DeepLab v3+·YOLO11n은 CPU로도 장당 수 초 → 큐 구조라 충분
+2. GPU 클라우드 (비용 큼)
+3. 노트북 + 터널(cloudflared 등) — 심사 기간 내내 켜 둬야 해서 비권장
+
+어느 쪽이든 심사위원이 바로 볼 수 있게 **분석 완료된 시연 데이터를 미리 넣어 두는 것**을 권합니다.
+
+## 6. 일정 (10/21 ~ 10/31)
+
+| 날짜 | 팀 일정 | 백엔드 |
+|---|---|---|
+| 10/21 수 | 추가 라벨링 | 저장소 실행 확인 · 프론트와 API.md 합의 |
+| 10/22 목 | 미세조정 | 모델 팀에서 TorchScript·YOLO 가중치 받기 → 실제 모델로 사진 10~20장 |
+| 10/23 금 | 현장 실측 | 보정용 장소 사진 + 전체 보도폭·남은 폭·현장 판정 기록 (`labels.csv`) |
+| 10/24 토 | 임계값 보정 | `analyze_folder.py`로 혼동행렬 → 60%/30% 조정 → 정책 버전 고정 |
+| 10/25 일 | 추론 파이프라인 | 배포 서버 준비 (테스트 URL) |
+| 10/26 월 | 백엔드 연결 | 프론트 `VITE_API_BASE_URL` 연결 |
+| 10/27 화 | 지도·검수표 | 처리중·실패·유보·검수·조치·전후 비교 화면 연동 |
+| 10/28 수 | 최종 현장검증 | **보정에 안 쓴 장소** 사진으로 최종 평가 (규칙 고정 후) |
+| 10/29 목 | 발표·제출물 | 시연 데이터 고정, 데모 영상 녹화 |
+| 10/30 금 | 학원 발표 | 제출 메일 발송 (여유) |
+| 10/31 토 | 공모전 마감 | 24:00 |
+
+## 7. 아직 정할 것
+
+1. 임계값(60%/30%)·위험도 가중치 — 10/24 보정 후 확정
+2. 구간 후보 검색 반경 (기본 50 m) — 실제 GPS 오차 보고 조정
+3. 위험정보 유효시간 (답변서1: 팀 결정). 현재는 "최신 촬영 관측"만 보여 주고 만료는 없음
+4. 배포 방식 (5장)
+5. 저장소 공개 여부와 데이터·가중치 사용 조건 (AI Hub 수락 조건, SelectStar checkpoint, Ultralytics AGPL)
+6. 직접 촬영 사진의 얼굴·번호판 비식별 방법 (답변서2: 필수)

@@ -1,0 +1,18 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+*.db
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+uv.lock
+
+# 서비스 데이터·가중치·실험 결과·임시 작업 (마스터 문서 6장: 소스 Git에서 제외)
+storage/
+model_weights/*
+!model_weights/README.md
+outputs/
+work/
+data/*
+!data/roadpush_seongnam_nodelink.geojson

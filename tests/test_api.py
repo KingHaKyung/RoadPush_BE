@@ -1,0 +1,194 @@
+import io
+
+import cv2
+import numpy as np
+from fastapi.testclient import TestClient
+from PIL import Image
+
+from app.main import app
+from app.services import worker
+
+API = "/api/v1"
+LAT, LNG = 37.386851, 127.127334
+
+
+def _jpg(seed: int) -> bytes:
+    rng = np.random.default_rng(seed)
+    img = rng.integers(60, 200, (360, 480, 3), dtype=np.uint8)
+    return cv2.imencode(".jpg", img)[1].tobytes()
+
+
+def _post(c, seed=1, **form):
+    data = {"captured_at": "2026-10-18T14:32:00+09:00", "lat": LAT, "lng": LNG, "source": "upload", **form}
+    return c.post(f"{API}/observations", data=data, files={"file": (f"p{seed}.jpg", _jpg(seed), "image/jpeg")})
+
+
+def _site(c, name="서현로 18길") -> dict:
+    return c.post(f"{API}/sites", json={"name": name, "lat": LAT, "lng": LNG, "sidewalk_width_m": 2.4}).json()
+
+
+def drain():
+    while worker.run_once():
+        pass
+
+
+def test_response_follows_master_spec_4_4():
+    with TestClient(app) as c:
+        r = _post(c, new_site_name="4.4 확인 구간")
+        assert r.status_code == 202, r.text
+        o = r.json()
+        for key in [
+            "observation_id", "analysis_id", "site_id", "location", "captured_at", "processing_status",
+            "passability", "risk_score", "uncertainty_reason", "images", "review_status", "human_passability",
+        ]:  # fmt: skip
+            assert key in o
+        assert o["processing_status"] == "pending" and o["passability"] is None and o["risk_score"] is None
+        assert o["captured_at"] == "2026-10-18T14:32:00+09:00"
+        assert set(o["images"]) == {"original", "surface_overlay", "obstacle_overlay"}
+
+        drain()
+        got = c.get(f"{API}/observations/{o['observation_id']}").json()
+        assert got["processing_status"] == "completed"
+        assert got["passability"] in ("passable", "narrowed", "blocked", "undetermined")
+        assert got["review_status"] == "pending" and got["human_passability"] is None
+        assert got["images"]["surface_overlay"].startswith("http")
+        assert c.get(got["images"]["surface_overlay"].split("testserver")[1]).status_code == 200
+        if got["passability"] != "undetermined":
+            assert got["risk_complete"] is False  # 단일 사진은 길이 항 측정 불가
+
+
+def test_site_must_be_confirmed():
+    with TestClient(app) as c:
+        assert _post(c).status_code == 422  # 구간 미확인
+        assert _post(c, lat=None, lng=None, new_site_name="x").status_code == 422  # 신규 구간인데 위치 없음
+        s = _site(c, "후보 구간")
+        cands = c.get(f"{API}/sites/candidates", params={"lat": LAT + 0.0001, "lng": LNG}).json()
+        assert any(x["site"]["id"] == s["id"] for x in cands["sites"])
+        far = c.get(f"{API}/sites/candidates", params={"lat": LAT + 0.01, "lng": LNG}).json()
+        assert all(x["site"]["id"] != s["id"] for x in far["sites"])
+
+
+def test_review_is_per_analysis_and_not_inherited():
+    with TestClient(app) as c:
+        s = _site(c)
+        oid = _post(c, site_id=s["id"]).json()["observation_id"]
+        assert c.post(f"{API}/observations/{oid}/reviews", json={"status": "confirmed"}).status_code == 409
+        drain()
+        assert (
+            c.post(f"{API}/observations/{oid}/reviews", json={"status": "corrected"}).status_code == 422
+        )  # 수정에는 사람 판정 필요
+        rv = c.post(
+            f"{API}/observations/{oid}/reviews",
+            json={
+                "status": "corrected",
+                "human_passability": "blocked",
+                "comment": "현장 확인",
+                "reviewer": "교통행정과",
+            },
+        ).json()
+        assert rv["review_status"] == "corrected" and rv["human_passability"] == "blocked"
+        assert rv["passability"] is not None  # AI 결과는 그대로
+
+        re = c.post(f"{API}/observations/{oid}/reanalyze", json={"note": "밝기 보정"}).json()
+        assert re["processing_status"] == "pending" and re["review_status"] == "pending"
+        drain()
+        after = c.get(f"{API}/observations/{oid}").json()
+        assert after["review_status"] == "pending" and after["human_passability"] is None
+        assert after["analysis_trigger"] == "reanalysis"
+        hist = c.get(f"{API}/observations/{oid}/analyses").json()
+        assert [h["trigger"] for h in hist] == ["initial", "reanalysis"]
+
+
+def test_action_and_before_after_compare():
+    with TestClient(app) as c:
+        s = _site(c, "전후 비교 구간")
+        before = _post(c, seed=3, site_id=s["id"], captured_at="2026-10-20T09:00:00+09:00").json()["observation_id"]
+        drain()
+        o = c.post(f"{API}/observations/{before}/action", json={"state": "inspection_requested", "dept": "주차관리과"})
+        assert o.json()["action"]["label"] == "현장점검 요청"
+        aid = o.json()["action"]["action_id"]
+        c.post(f"{API}/observations/{before}/action", json={"state": "done"})
+
+        after = _post(c, seed=4, site_id=s["id"], captured_at="2026-10-21T09:00:00+09:00").json()["observation_id"]
+        drain()
+        assert c.patch(f"{API}/actions/{aid}", json={"after_observation_id": before}).status_code == 422
+        act = c.patch(f"{API}/actions/{aid}", json={"after_observation_id": after}).json()
+        assert act["state"] == "done" and act["dept"] == "주차관리과" and len(act["logs"]) == 3
+
+        cmp = c.get(f"{API}/sites/{s['id']}/compare", params={"before": before, "after": after}).json()
+        assert cmp["comparable"] is True and cmp["delta"] is not None
+        assert cmp["actions"][0]["after_observation_id"] == after
+        assert c.get(f"{API}/sites/{s['id']}/compare", params={"before": after, "after": before}).status_code == 422
+
+
+def test_map_uses_latest_capture_and_reference():
+    with TestClient(app) as c:
+        s = _site(c, "지도 구간")
+        old = _post(c, seed=5, site_id=s["id"], captured_at="2026-10-19T09:00:00+09:00").json()["observation_id"]
+        drain()
+        # 늦게 등록됐지만 더 오래전에 찍은 사진은 최신이 아니다
+        _post(c, seed=6, site_id=s["id"], captured_at="2026-10-01T09:00:00+09:00")
+        drain()
+        item = next(m for m in c.get(f"{API}/map").json() if m["site_id"] == s["id"])
+        assert item["latest"]["observation_id"] == old and item["reference"] is None
+
+        # 최신 촬영이 아직 처리 전이면 이전 완료 결과를 reference로 구분해 준다
+        new = _post(c, seed=7, site_id=s["id"], captured_at="2026-10-21T09:00:00+09:00").json()["observation_id"]
+        item = next(m for m in c.get(f"{API}/map").json() if m["site_id"] == s["id"])
+        assert item["latest"]["observation_id"] == new and item["latest"]["processing_status"] == "pending"
+        assert item["reference"]["observation_id"] == old
+        drain()
+
+
+def test_list_filters_for_review_table():
+    with TestClient(app) as c:
+        s = _site(c, "검수 표 구간")
+        _post(c, seed=8, site_id=s["id"])
+        drain()
+        rows = c.get(f"{API}/observations", params={"site_id": s["id"], "review_status": "pending"}).json()
+        assert len(rows) == 1
+        assert c.get(f"{API}/observations", params={"site_id": s["id"], "processing_status": "failed"}).json() == []
+
+
+def test_corrupt_image_rejected_and_input_errors_not_retried():
+    with TestClient(app) as c:
+        s = _site(c)
+        r = c.post(
+            f"{API}/observations",
+            data={"captured_at": "2026-10-18T14:32:00+09:00", "site_id": s["id"]},
+            files={"file": ("a.jpg", b"not an image", "image/jpeg")},
+        )
+        assert r.status_code == 422
+        r = c.post(
+            f"{API}/observations",
+            data={"captured_at": "2026-10-18T14:32:00+09:00", "site_id": s["id"]},
+            files={"file": ("a.txt", b"hi", "text/plain")},
+        )
+        assert r.status_code == 415
+        assert _post(c, site_id=s["id"], captured_at="2026-10-18T14:32:00").status_code == 422
+
+        # 깨진 영상은 입력 오류 → 재시도 없이 실패
+        r = c.post(
+            f"{API}/observations",
+            data={"captured_at": "2026-10-18T14:32:00+09:00", "site_id": s["id"]},
+            files={"file": ("v.mp4", b"broken", "video/mp4")},
+        )
+        oid = r.json()["observation_id"]
+        drain()
+        got = c.get(f"{API}/observations/{oid}").json()
+        assert got["processing_status"] == "failed" and got["attempts"] == 1 and got["passability"] is None
+
+
+def test_inspect_reads_exif():
+    img = Image.new("RGB", (64, 48), (120, 120, 120))
+    exif = Image.Exif()
+    exif[0x0132] = "2026:10:20 14:30:00"
+    gps = exif.get_ifd(0x8825)
+    gps.update({1: "N", 2: (37.0, 22.0, 30.0), 3: "E", 4: (127.0, 7.0, 30.0)})
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", exif=exif)
+    with TestClient(app) as c:
+        r = c.post(f"{API}/observations/inspect", files={"file": ("e.jpg", buf.getvalue(), "image/jpeg")}).json()
+        assert abs(r["lat"] - 37.375) < 1e-6 and abs(r["lng"] - 127.125) < 1e-6
+        assert r["captured_at"].startswith("2026-10-20T05:30:00")
+        assert r["candidates"] is not None
