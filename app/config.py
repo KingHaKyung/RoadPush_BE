@@ -5,7 +5,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # .env는 UTF-8로 읽는다 (한국어 주석이 있어도 Windows cp949 기본값에 영향받지 않게)
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     database_url: str = "sqlite:///./roadpush.db"
     storage_dir: Path = Path("./storage")

@@ -31,11 +31,17 @@ def init_db() -> None:
 
     logging.getLogger("alembic.runtime.plugins").setLevel(logging.WARNING)  # import 때 찍히는 플러그인 로그 숨김
     from alembic import command
+
+    command.upgrade(alembic_config(), "head")
+
+
+def alembic_config():
+    """alembic.ini 파일을 읽지 않고 설정을 만든다 (Windows 기본 인코딩 cp949 문제를 피함)"""
     from alembic.config import Config
 
-    cfg = Config(str(ROOT / "alembic.ini"))
+    cfg = Config()
     cfg.set_main_option("script_location", str(ROOT / "migrations"))
-    command.upgrade(cfg, "head")
+    return cfg
 
 
 def get_db() -> Iterator[Session]:

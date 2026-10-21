@@ -192,3 +192,10 @@ def test_inspect_reads_exif():
         assert abs(r["lat"] - 37.375) < 1e-6 and abs(r["lng"] - 127.125) < 1e-6
         assert r["captured_at"].startswith("2026-10-20T05:30:00")
         assert r["candidates"] is not None
+
+
+def test_root_redirects_to_docs():
+    with TestClient(app) as c:
+        r = c.get("/", follow_redirects=False)
+        assert r.status_code == 307 and r.headers["location"] == "/docs"
+        assert c.get("/docs").status_code == 200

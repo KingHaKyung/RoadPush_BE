@@ -14,6 +14,7 @@
 | [docs/API.md](docs/API.md) | API (마스터 문서 4.4 응답 형식), 프론트 필드 매핑 |
 | [docs/DB.md](docs/DB.md) | 테이블 정의·관계도, Supabase 연결, 스키마 변경 절차 |
 | [docs/PASSABILITY.md](docs/PASSABILITY.md) | 통과 여부·상대 위험도 계산, 상대/절대 수치, 한계와 극복 |
+| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | 실행·개발 중 발생한 문제의 원인·해결·재발 방지 기록 |
 
 ## 기술 스택
 
@@ -34,7 +35,7 @@ python -m venv .venv
 # Windows: .venv\Scripts\Activate.ps1   /   macOS·Linux: source .venv/bin/activate
 pip install -e ".[dev]"
 cp .env.example .env              # Windows: copy .env.example .env
-uvicorn app.main:app --reload     # http://localhost:8000/docs
+uvicorn app.main:app --reload     # http://localhost:8000 → API 문서
 python scripts/seed_demo.py       # 다른 터미널에서: 시연 데이터 넣기
 ```
 

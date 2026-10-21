@@ -5,6 +5,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from ..ai_engine import imageio
 from ..config import get_settings
 
 
@@ -29,10 +30,10 @@ class LocalStorage:
         ok, buf = cv2.imencode(Path(key).suffix or ".png", img)
         if not ok:
             raise RuntimeError(f"이미지 인코딩 실패: {key}")
-        return self.put_bytes(key, buf.tobytes())
+        return self.put_bytes(key, buf.tobytes())  # 바이트로 저장 → 한글 경로에서도 동작
 
     def read_image(self, key: str) -> np.ndarray:
-        img = cv2.imread(str(self.path(key)), cv2.IMREAD_UNCHANGED)
+        img = imageio.imread(self.path(key), cv2.IMREAD_UNCHANGED)
         if img is None:
             raise FileNotFoundError(key)
         return img
