@@ -15,7 +15,8 @@ DB 테이블 (마스터 문서 5장 관계 구조).
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, CheckConstraint, DateTime, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from . import Base
@@ -23,6 +24,13 @@ from . import Base
 
 def _id(prefix: str):
     return lambda: f"{prefix}_{uuid.uuid4().hex[:12]}"
+
+
+# PostgreSQL(Supabase)에서는 JSONB, SQLite에서는 JSON
+Json = JSON().with_variant(JSONB(), "postgresql")
+
+
+PASS_CODES = "'passable', 'narrowed', 'blocked', 'undetermined'"
 
 
 def now() -> datetime:
@@ -50,6 +58,10 @@ class Observation(Base):
     """관측 1건 = 사진 1장(또는 영상 1개) + 촬영 위치·시각 + 확정 구간"""
 
     __tablename__ = "observations"
+    __table_args__ = (
+        Index("ix_observations_site_captured", "site_id", "captured_at"),  # 지도: 구간별 최신 촬영 관측
+        CheckConstraint("media_type IN ('image', 'video')", name="ck_observations_media_type"),
+    )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id("obs"))
     site_id: Mapped[str] = mapped_column(ForeignKey("sites.id"), index=True)
@@ -75,6 +87,12 @@ class Analysis(Base):
     """AI 분석 1회. status=queued 행이 작업 큐다 (별도 브로커 없이 DB 폴링)"""
 
     __tablename__ = "analyses"
+    __table_args__ = (
+        CheckConstraint("trigger IN ('initial', 'reanalysis')", name="ck_analyses_trigger"),
+        CheckConstraint("status IN ('pending', 'processing', 'completed', 'failed')", name="ck_analyses_status"),
+        CheckConstraint(f"passability IS NULL OR passability IN ({PASS_CODES})", name="ck_analyses_passability"),
+        CheckConstraint("risk_score IS NULL OR risk_score BETWEEN 0 AND 100", name="ck_analyses_risk_score"),
+    )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id("ana"))
     observation_id: Mapped[str] = mapped_column(ForeignKey("observations.id"), index=True)
@@ -99,9 +117,9 @@ class Analysis(Base):
     confidence: Mapped[float | None] = mapped_column(Float)
     uncertainty_code: Mapped[str | None] = mapped_column(String(20))
     uncertainty_reason: Mapped[str | None] = mapped_column(Text)
-    causes: Mapped[list] = mapped_column(JSON, default=list)
-    evidence: Mapped[dict] = mapped_column(JSON, default=dict)
-    files: Mapped[dict] = mapped_column(JSON, default=dict)  # {"surface_overlay": key, ...}
+    causes: Mapped[list] = mapped_column(Json, default=list)
+    evidence: Mapped[dict] = mapped_column(Json, default=dict)
+    files: Mapped[dict] = mapped_column(Json, default=dict)  # {"surface_overlay": key, ...}
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -114,6 +132,12 @@ class Review(Base):
     """관리자 확인·수정. 특정 분석에 붙고, AI 결과를 덮어쓰지 않는다 (이력 누적, 최신 행이 현재 상태)"""
 
     __tablename__ = "reviews"
+    __table_args__ = (
+        CheckConstraint("status IN ('confirmed', 'corrected')", name="ck_reviews_status"),
+        CheckConstraint(
+            f"human_passability IS NULL OR human_passability IN ({PASS_CODES})", name="ck_reviews_human_passability"
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id("rev"))
     analysis_id: Mapped[str] = mapped_column(ForeignKey("analyses.id"), index=True)
@@ -128,6 +152,9 @@ class Action(Base):
     """현장조치. 구간 단위이며 조치 전 관측과(재촬영 후) 조치 후 관측을 연결한다"""
 
     __tablename__ = "actions"
+    __table_args__ = (
+        CheckConstraint("state IN ('none', 'inspection_requested', 'in_progress', 'done')", name="ck_actions_state"),
+    )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id("act"))
     site_id: Mapped[str] = mapped_column(ForeignKey("sites.id"), index=True)

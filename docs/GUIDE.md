@@ -1,7 +1,7 @@
 # RoadPush 백엔드 가이드
 
 > 기준: 마스터 설계·근거 문서 V4, 원 제안서, 사전질의 답변서 1~3, 산업통상부 공고 제2026-614호.
-> 이 문서는 백엔드(`RoadPush_BE`)를 어떻게 구성했고, 제출까지 무엇을 해야 하는지를 정리합니다.
+> 처음 받아서 실행하는 방법은 [SETUP.md](SETUP.md), DB는 [DB.md](DB.md), API는 [API.md](API.md), 계산 규칙은 [PASSABILITY.md](PASSABILITY.md).
 
 ## 1. 무엇을 판단하는가
 
@@ -24,24 +24,67 @@
 
 ## 2. 처리 흐름
 
-```
-[F1] 사진 선택 → POST /observations/inspect (EXIF 시각·GPS) → 위치·시각 보완
-     → GET /sites/candidates (반경 안 기존 구간) → 사용자가 기존 구간 확인 or 신규 등록
-     → POST /observations (원본은 storage/, 관측은 DB) → 202
-[F2] 워커가 pending 분석을 집어 AI 분석 모듈 호출
-     노면 semantic mask (SelectStar DeepLab v3+) ┐
-     장애물 instance mask (YOLO11n-seg / YOLOE)  ┴→ 통합 라벨 장면
-     → 단면별 W 추정 · 점유 · 남은 개별 통로 · 입구-출구 연속성
-     → 통과 상태 · 판단 유보 · 상대 위험도 · 근거 → 새 analysis 행 + mask·overlay 파일
-     실행 오류는 3회까지 자동 재시도, 손상·미지원 입력은 바로 실패, 유보는 '완료'로 검수 대상
-[F3] GET /map — 구간별 최신 '촬영' 관측 (처리중·실패면 이전 완료 결과를 reference로 구분)
-[F4] GET /observations/{id} — 원본·overlay·지표·유보 사유·AI/관리자 판정
-[F7] GET /observations?review_status=pending|passability=undetermined|processing_status=failed — 검수 표
-[F5] POST …/reviews (확인·수정, 분석 단위로 저장) · POST …/reanalyze (새 분석) · POST …/action (조치)
-[F6] 같은 구간 재촬영 → F1·F2 → PATCH /actions/{id} {after_observation_id} → GET /sites/{id}/compare
+### 전체 서비스 흐름
+
+```mermaid
+flowchart TD
+    IN["사진 선택<br/>(MVP: 직접 업로드 · 확장: CCTV·단속차량·드론)"] --> EXIF["EXIF 촬영시각·GPS 읽기<br/>POST /observations/inspect"]
+    EXIF --> FIX{"위치·시각 있음?"}
+    FIX -- 없음 --> MANUAL["사용자가 보완<br/>(지도에서 위치 지정)"]
+    FIX -- 있음 --> CAND
+    MANUAL --> CAND["반경 안 기존 구간 후보 조회<br/>GET /sites/candidates"]
+    CAND --> PICK{"일치하는 구간?"}
+    PICK -- 있음 --> OLD["기존 구간에 연결"]
+    PICK -- 없음 --> NEW["신규 구간 등록"]
+    OLD --> SAVE["POST /observations → 202<br/>원본은 파일 저장소, 관측은 DB"]
+    NEW --> SAVE
+    SAVE --> Q[("분석 대기<br/>analyses.status = pending")]
+    Q --> AI["AI 분석 모듈<br/>(아래 그림)"]
+    AI --> RES{"결과"}
+    RES -- "실행 오류" --> RETRY["자동 재시도 (최대 3회)"] --> Q
+    RES -- "손상·미지원 입력 / 한도 초과" --> FAIL["처리 실패"]
+    RES -- "통과·좁아짐·단절" --> DONE["완료"]
+    RES -- "판단 유보" --> HOLD["완료 · 검수 대상"]
+    DONE --> MAP["지도·목록·상세<br/>GET /map · /observations"]
+    HOLD --> MAP
+    FAIL --> MAP
+    MAP --> REVIEW["관리자 확인·수정<br/>(AI 결과는 보존)"]
+    REVIEW --> ACT["현장조치<br/>점검 요청 → 조치 중 → 조치 완료"]
+    ACT --> RESHOOT["같은 구간 재촬영"]
+    RESHOOT -.-> IN
+    RESHOOT --> CMP["전후 비교<br/>GET /sites/{id}/compare"]
 ```
 
-API 상세는 [API.md](API.md), 계산 규칙은 [PASSABILITY.md](PASSABILITY.md).
+### AI 분석 모듈 안
+
+```mermaid
+flowchart LR
+    F["사진<br/>(영상이면 N초 간격 프레임)"] --> S["보도·차도<br/>semantic mask<br/>SelectStar DeepLab v3+"]
+    F --> O["차량·비차량<br/>instance mask<br/>YOLO11n-seg · YOLOE"]
+    S --> C["통합 라벨 장면<br/>보도·차도·연석·장애물·보행자·배경"]
+    O --> C
+    C --> V["영상이면 프레임 융합<br/>지나가는 사람 제거"]
+    V --> W["단면별 전체 보행폭 W 추정<br/>가려진 경계는 양옆·인접 단면으로"]
+    W --> P["남은 개별 통로<br/>→ 입구-출구 연속 통로"]
+    P --> J{"낙관·보수 판정 같음?"}
+    J -- 다름 --> U["판단 유보 + 사유"]
+    J -- 같음 --> R["통과 / 좁아짐 / 단절<br/>+ 상대 위험도 + 근거 이미지"]
+```
+
+### 상태가 바뀌는 방식
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending: 관측 등록 / 재분석 요청
+    pending --> processing: 워커가 가져감
+    processing --> completed: 판정 또는 판단 유보
+    processing --> pending: 실행 오류 (재시도 한도 안)
+    processing --> failed: 입력 오류 · 한도 초과
+    completed --> [*]
+    failed --> [*]
+```
+
+검수(`review_status`)와 조치(`action.state`)는 위 처리 상태와 따로 기록합니다. 재분석하면 새 분석이 생기고 검수는 미검수부터 다시 시작합니다.
 
 ## 3. 폴더 구조 (마스터 문서 6장)
 
@@ -55,11 +98,12 @@ app/
     passability/       단면 W · 연속 통로 · 판정(rules) · 상대 위험도(risk) · overlay
     scene.py           노면 + 장애물 합성, 영상 프레임 융합
     pipeline.py        AI 모듈 진입점
-  db/                  DB 연결·테이블
+  db/                  DB 연결·테이블 정의(models.py)
+migrations/            DB 스키마 변경 이력 (Alembic) → DB.md
 model_weights/         선택 가중치 (Git 제외)
 storage/               서비스 원본·mask·overlay (Git 제외)
 data/                  학습·평가 자료 (Git 제외, 표준노드링크 예시만 포함)
-scripts/               analyze_folder.py — 폴더 일괄 분석·현장 판정 비교
+scripts/               analyze_folder.py (일괄 분석·보정) · seed_demo.py (시연 데이터)
 outputs/  work/        실험 결과·임시 (Git 제외)
 docs/
 ```
@@ -75,11 +119,11 @@ docs/
 | 연결 확인 | dummy | 기본값. 모델 없이 API·프론트 확인 |
 
 DeepLab v3+와 YOLO 계열은 8GB에서 추론·미세조정 모두 무리 없습니다. 분석은 큐로 돌아 실시간이 필요 없습니다.
-**실제 모델 경로(selectstar·hf·yolo)는 이 저장소에서 GPU·가중치 없이 작성해 아직 실행 검증이 안 됐습니다.** 첫 실행 때 확인하세요.
+**실제 모델 경로(selectstar·hf·yolo)는 GPU·가중치 없이 작성해 아직 실행 검증이 안 됐습니다.** 첫 실행 때 확인하세요.
 
 ## 5. 공모전 제출물과 백엔드가 맡을 일
 
-마감 **10/31(토) 24:00**, `relations2@keit.re.kr` 메일 접수. 주말이라 문의 답변 불가 → 10/30까지 제출 권장.
+마감 **10/31(토) 24:00**, `relations2@keit.re.kr` 메일 접수. 주말이라 문의 답변 불가 → 10/30 제출 권장.
 
 | 제출물 | 필수 | 백엔드 관련 |
 |---|---|---|
@@ -92,18 +136,15 @@ DeepLab v3+와 YOLO 계열은 8GB에서 추론·미세조정 모두 무리 없�
 
 심사: 대국민 투표 50% + 전문가 50% (문제정의·AI 구현 수준·완성도·사회문제 기여·창의적 응용). 후보작 구현 가점 5점.
 
-**테스트 URL 배포 메모**: 심사 기간 내내 노트북을 켜 둘 수는 없습니다. 선택지:
-1. 클라우드 VM(CPU)에 백엔드 + 프론트 빌드 배포. DeepLab v3+·YOLO11n은 CPU로도 장당 수 초 → 큐 구조라 충분
-2. GPU 클라우드 (비용 큼)
-3. 노트북 + 터널(cloudflared 등) — 심사 기간 내내 켜 둬야 해서 비권장
-
-어느 쪽이든 심사위원이 바로 볼 수 있게 **분석 완료된 시연 데이터를 미리 넣어 두는 것**을 권합니다.
+**테스트 URL 배포**: 심사 기간 내내 노트북을 켜 둘 수는 없으니 클라우드 VM(CPU)에 백엔드 + 프론트 빌드를 올리고,
+DB는 Supabase를 씁니다 ([DB.md](DB.md)). DeepLab v3+·YOLO11n은 CPU로도 장당 수 초라 큐 구조에서 충분합니다.
+심사위원이 바로 볼 수 있게 분석이 끝난 시연 데이터를 미리 넣어 둡니다.
 
 ## 6. 일정 (10/21 ~ 10/31)
 
 | 날짜 | 팀 일정 | 백엔드 |
 |---|---|---|
-| 10/21 수 | 추가 라벨링 | 저장소 실행 확인 · 프론트와 API.md 합의 |
+| 10/21 수 | 추가 라벨링 | 팀원 로컬 실행 확인 ([SETUP.md](SETUP.md)) · Supabase 프로젝트 생성 · 프론트와 API 합의 |
 | 10/22 목 | 미세조정 | 모델 팀에서 TorchScript·YOLO 가중치 받기 → 실제 모델로 사진 10~20장 |
 | 10/23 금 | 현장 실측 | 보정용 장소 사진 + 전체 보도폭·남은 폭·현장 판정 기록 (`labels.csv`) |
 | 10/24 토 | 임계값 보정 | `analyze_folder.py`로 혼동행렬 → 60%/30% 조정 → 정책 버전 고정 |
@@ -111,15 +152,15 @@ DeepLab v3+와 YOLO 계열은 8GB에서 추론·미세조정 모두 무리 없�
 | 10/26 월 | 백엔드 연결 | 프론트 `VITE_API_BASE_URL` 연결 |
 | 10/27 화 | 지도·검수표 | 처리중·실패·유보·검수·조치·전후 비교 화면 연동 |
 | 10/28 수 | 최종 현장검증 | **보정에 안 쓴 장소** 사진으로 최종 평가 (규칙 고정 후) |
-| 10/29 목 | 발표·제출물 | 시연 데이터 고정, 데모 영상 녹화 |
-| 10/30 금 | 학원 발표 | 제출 메일 발송 (여유) |
-| 10/31 토 | 공모전 마감 | 24:00 |
+| 10/29 목 | 제출물 완성 | 시연 데이터 고정, 데모 영상 녹화, 성과보고서 |
+| 10/30 금 | 최종 검수 및 제출 | 테스트 URL·영상·서류 최종 점검 후 메일 제출 |
+| 10/31 토 | 공모전 마감 | 24:00 (주말이라 문의 불가) |
 
 ## 7. 아직 정할 것
 
 1. 임계값(60%/30%)·위험도 가중치 — 10/24 보정 후 확정
 2. 구간 후보 검색 반경 (기본 50 m) — 실제 GPS 오차 보고 조정
 3. 위험정보 유효시간 (답변서1: 팀 결정). 현재는 "최신 촬영 관측"만 보여 주고 만료는 없음
-4. 배포 방식 (5장)
+4. 배포 서버 (VM 종류)
 5. 저장소 공개 여부와 데이터·가중치 사용 조건 (AI Hub 수락 조건, SelectStar checkpoint, Ultralytics AGPL)
 6. 직접 촬영 사진의 얼굴·번호판 비식별 방법 (답변서2: 필수)
