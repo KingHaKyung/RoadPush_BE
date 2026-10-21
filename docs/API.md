@@ -31,14 +31,52 @@
 
 ## 등록 흐름 (4.6 F1·F2)
 
+```mermaid
+sequenceDiagram
+    actor U as 담당자
+    participant FE as 프론트
+    participant BE as 백엔드
+    participant W as 분석 워커
+    U->>FE: 사진 선택
+    FE->>BE: POST /observations/inspect (사진)
+    BE-->>FE: EXIF captured_at·lat·lng (없으면 null) + 주변 구간 후보
+    opt 위치·시각이 없을 때
+        U->>FE: 지도에서 위치 지정 · 시각 입력
+        FE->>BE: GET /sites/candidates?lat=&lng=
+        BE-->>FE: 반경 안 기존 구간 (거리·최근 사진)
+    end
+    U->>FE: 기존 구간 선택 또는 "일치 없음 → 신규 등록"
+    FE->>BE: POST /observations (site_id 또는 new_site_name)
+    BE-->>FE: 202 · processing_status = pending
+    W->>BE: pending 분석 가져가서 실행
+    loop 완료될 때까지 몇 초 간격
+        FE->>BE: GET /observations/{id}
+        BE-->>FE: processing / completed / failed
+    end
 ```
-1. 사용자가 사진 선택
-2. POST /observations/inspect          → captured_at, lat, lng (없으면 null) + candidates
-3. 위치·시각이 없으면 사용자가 보완 (지도에서 위치 지정)
-   GET /sites/candidates?lat=&lng=     → 후보 구간 (거리·최근 사진)
-4. 사용자가 후보 중 하나를 고르거나 "일치하는 구간 없음 → 신규 등록"
-5. POST /observations  (site_id 또는 new_site_name)   → 202, processing_status=pending
-6. GET /observations/{id} 를 몇 초 간격으로 조회      → completed / failed
+
+## 검수·조치·전후 비교 흐름 (4.6 F5·F6·F7)
+
+```mermaid
+sequenceDiagram
+    actor U as 담당자
+    participant FE as 프론트
+    participant BE as 백엔드
+    FE->>BE: GET /observations?review_status=pending (또는 passability=undetermined)
+    U->>FE: 행 선택 → 원본·overlay·근거 확인
+    alt AI 판정이 맞음
+        FE->>BE: POST /observations/{id}/reviews {status: confirmed}
+    else AI 판정이 틀림
+        FE->>BE: POST /observations/{id}/reviews {status: corrected, human_passability, comment}
+    else 사진·조건 보완 후 다시
+        FE->>BE: POST /observations/{id}/reanalyze → 새 분석, 검수는 미검수부터
+    end
+    FE->>BE: POST /observations/{id}/action {state: inspection_requested, dept}
+    FE->>BE: POST /observations/{id}/action {state: done}
+    U->>FE: 같은 구간 재촬영 등록 (위 등록 흐름, site_id 지정)
+    FE->>BE: PATCH /actions/{action_id} {after_observation_id}
+    FE->>BE: GET /sites/{site_id}/compare?before=&after=
+    BE-->>FE: 전후 관측 · 조치 · comparable · delta
 ```
 
 | 필드 | 필수 | 설명 |

@@ -1,0 +1,195 @@
+# 팀원 로컬 실행 가이드
+
+처음 받는 사람이 **자기 PC에서 백엔드를 띄우고, 시연 데이터를 넣고, API를 확인**하기까지의 순서입니다.
+GPU·모델 가중치·DB 설치 없이 끝까지 됩니다 (기본값: SQLite + dummy 모델). 15분 정도 걸립니다.
+
+```mermaid
+flowchart LR
+    A["0. 준비물 설치"] --> B["1. 저장소 받기"]
+    B --> C["2. 가상환경·패키지"]
+    C --> D["3. .env 만들기"]
+    D --> E["4. 서버 실행"]
+    E --> F["5. 시연 데이터 넣기"]
+    F --> G["6. 확인"]
+    G -.선택.-> H["7. 프론트 연결"]
+    G -.선택.-> I["8. 실제 모델(GPU)"]
+```
+
+## 0. 준비물
+
+| 도구 | 버전 | 확인 명령 | 설치 |
+|---|---|---|---|
+| Git | 아무거나 | `git --version` | https://git-scm.com |
+| Python | **3.11 또는 3.12 권장** (3.13도 기본 기능은 동작) | `python --version` | https://www.python.org/downloads/ (Windows: 설치 첫 화면에서 **Add python.exe to PATH** 체크) |
+| VS Code | 선택 | | Python 확장 설치 |
+| Node.js | 18 이상, 프론트도 띄울 때만 | `node --version` | https://nodejs.org |
+
+> Windows에서 `python`을 입력했는데 Microsoft Store가 열리면: 설정 → 앱 → 고급 앱 설정 → 앱 실행 별칭에서 `python.exe`, `python3.exe`를 끕니다.
+
+## 1. 저장소 받기
+
+```bash
+git clone https://github.com/KingHaKyung/RoadPush_BE.git
+cd RoadPush_BE
+```
+
+## 2. 가상환경과 패키지
+
+**Windows (PowerShell)**
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -e ".[dev]"
+```
+`Activate.ps1 ... 이 시스템에서 스크립트를 실행할 수 없으므로` 오류가 나면 한 번만 실행:
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+**macOS · Linux**
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -e ".[dev]"
+```
+
+활성화되면 프롬프트 앞에 `(.venv)`가 붙습니다. **새 터미널을 열 때마다 활성화 명령을 다시 실행**해야 합니다.
+
+## 3. .env 만들기
+
+```powershell
+copy .env.example .env      # Windows
+```
+```bash
+cp .env.example .env        # macOS · Linux
+```
+기본값 그대로 두면 됩니다. `.env`는 Git에 올라가지 않습니다.
+
+## 4. 서버 실행
+
+```bash
+uvicorn app.main:app --reload
+```
+
+아래처럼 나오면 성공입니다. 처음 실행할 때 `roadpush.db`(SQLite)와 테이블이 자동으로 만들어집니다.
+```
+INFO:alembic.runtime.migration:Running upgrade  -> 0001, 초기 스키마: 구간·관측·분석·검수·조치 …   ← 처음 한 번만
+INFO:roadpush.worker:분석 워커 시작 (surface=dummy, obstacles=none)
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+```
+
+브라우저에서 확인:
+- http://localhost:8000/api/v1/health → `{"status":"ok", …}`
+- http://localhost:8000/docs → 모든 API를 눌러 볼 수 있는 화면 (Swagger)
+
+## 5. 시연 데이터 넣기
+
+서버는 켜 둔 채 **터미널을 하나 더 열고**, 가상환경을 활성화한 뒤:
+```bash
+python scripts/seed_demo.py
+```
+구간 4곳, 관측 8건, 검수 1건, 조치 → 재촬영 전후 비교 1건이 들어갑니다. 여러 번 실행하면 그만큼 더 쌓입니다.
+
+## 6. 확인
+
+| 보고 싶은 것 | 주소 |
+|---|---|
+| 지도용 데이터 (구간별 최신 관측) | http://localhost:8000/api/v1/map |
+| 관측 목록 | http://localhost:8000/api/v1/observations |
+| 판단 유보만 | http://localhost:8000/api/v1/observations?passability=undetermined |
+| 근거 이미지 | 응답의 `images.surface_overlay`, `images.obstacle_overlay` 주소를 브라우저에 붙여 넣기 |
+
+`/docs` 화면의 **POST /api/v1/observations → Try it out**에서 자기 사진을 직접 올려 볼 수도 있습니다
+(`captured_at`은 `2026-10-21T14:30:00+09:00` 형식, `new_site_name`에 아무 이름).
+
+dummy 모델은 사진 내용을 보지 않고 가짜 장면을 만듭니다. 판정 결과는 흐름 확인용입니다.
+
+처음부터 다시 하고 싶으면 서버를 끄고 `roadpush.db`와 `storage/` 폴더를 지운 뒤 다시 실행합니다.
+
+## 7. 프론트 연결 (선택)
+
+```bash
+git clone https://github.com/KingHaKyung/RoadPush_FE.git
+cd RoadPush_FE
+npm install
+```
+`RoadPush_FE/.env`:
+```
+VITE_API_BASE_URL=http://localhost:8000/api/v1
+```
+```bash
+npm run dev     # http://localhost:5173
+```
+프론트가 예시 데이터 대신 API를 쓰려면 프론트 쪽 연결 코드가 필요합니다 (필드 매핑은 [API.md](API.md) 마지막 표).
+백엔드는 `http://localhost:5173`에서 오는 요청을 허용해 두었습니다 (`.env`의 `CORS_ORIGINS`).
+
+## 8. 실제 모델로 돌리기 (GPU가 있는 팀원)
+
+1. CUDA용 PyTorch 설치 — https://pytorch.org/get-started/locally/ 에서 OS·CUDA를 고르고 나온 명령을 그대로 씁니다. 예:
+   ```bash
+   pip install torch --index-url https://download.pytorch.org/whl/cu124
+   ```
+2. 모델 라이브러리
+   ```bash
+   pip install -e ".[ml]"
+   ```
+3. 가중치 파일을 `model_weights/`에 넣기 ([model_weights/README.md](../model_weights/README.md))
+4. `.env` 수정 후 서버 재시작
+   ```
+   SURFACE_MODEL=selectstar
+   OBSTACLE_MODEL=yolo
+   OBSTACLE_WEIGHTS=["model_weights/yolo11n-seg.pt"]
+   DEVICE=cuda
+   ```
+5. GPU 확인: `python -c "import torch; print(torch.cuda.is_available())"` → `True`
+
+서버 없이 사진 폴더만 분석하려면:
+```bash
+python scripts/analyze_folder.py <사진 폴더> --out outputs/test1
+```
+
+## 9. 테스트
+
+```bash
+pytest
+ruff check app tests scripts migrations
+```
+코드를 고친 뒤 푸시하기 전에 두 명령이 통과하는지 확인합니다.
+
+## 10. DB 관련 약속
+
+- **로컬 개발은 각자 SQLite(기본값)** 를 씁니다. 자기 PC의 `.env`에 Supabase 주소를 넣지 마세요.
+  사진 파일은 각자 PC의 `storage/`에 저장되기 때문에, 공용 DB를 여러 PC가 같이 쓰면 서로의 이미지가 깨집니다 ([DB.md](DB.md) 1장).
+- Supabase는 **배포 서버만** 연결합니다. 팀원이 같은 데이터를 보려면 배포 서버 주소를 씁니다.
+- 테이블 구조 변경은 백엔드 담당이 Alembic 마이그레이션으로만 합니다 ([DB.md](DB.md) 5장). `git pull` 후 서버를 켜면 자동 적용됩니다.
+
+## 11. Git 협업
+
+```bash
+git checkout main && git pull                 # 최신 받기
+git checkout -b feat/짧은-설명                 # 작업 브랜치
+# … 작업 …
+pytest && ruff check app tests scripts migrations
+git add -A && git commit -m "무엇을 왜 바꿨는지"
+git push -u origin feat/짧은-설명              # GitHub에서 main으로 Pull Request
+```
+올리면 안 되는 것: `.env`, `storage/`, `model_weights/`의 가중치, `data/`의 학습 자료, `outputs/` (이미 `.gitignore`에 있음).
+
+## 12. 자주 나는 문제
+
+| 증상 | 해결 |
+|---|---|
+| `uvicorn`을 찾을 수 없음 | 가상환경 활성화 안 됨 → 2장의 활성화 명령 |
+| `ModuleNotFoundError: app` | 저장소 폴더(`RoadPush_BE`) 안에서 실행했는지 확인 |
+| `address already in use` / 포트 사용 중 | 다른 서버가 8000번 사용 중 → `uvicorn app.main:app --reload --port 8001` |
+| 프론트에서 CORS 오류 | `.env`의 `CORS_ORIGINS`에 프론트 주소 추가 후 서버 재시작 |
+| 관측이 계속 `pending` | 워커가 안 돌고 있음 → `.env`의 `RUN_WORKER_IN_API=true` 확인, 서버 로그의 "분석 워커 시작" 확인 |
+| 관측이 `failed` | `GET /api/v1/observations/{id}/analyses`의 `error` 확인. `input`이면 사진 파일 문제 |
+| `422 구간을 확인해 주세요` | 등록할 때 `site_id`(기존 구간) 또는 `new_site_name`(신규 구간) 중 하나 필요 |
+| `422 captured_at에 시간대` | `2026-10-21T14:30:00+09:00`처럼 `+09:00` 붙이기 |
+| 실제 모델에서 `torch` 없음 | 8장 1~2번 |
+| `torch.cuda.is_available()`이 False | CPU용 torch가 깔림 → `pip uninstall torch` 후 CUDA용 명령으로 다시 설치 |
+| DB를 초기화하고 싶음 | 서버 끄고 `roadpush.db`, `storage/` 삭제 |

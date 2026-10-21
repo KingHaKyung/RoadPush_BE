@@ -333,6 +333,10 @@ def analyze_passability(
     confidence = (
         model_conf * (1 - unknown_ratio) * (1 - 0.5 * stats["hidden_ratio"]) * (1 - 0.3 * stats["edge_uncertain_ratio"])
     )
+    if transposed:
+        # 보도가 화면을 가로지르는 옆 방향 사진: 행이 같은 깊이가 아니라 상대폭 근사가 약해진다
+        confidence *= 0.8
+        stats["view"] = "side"
     confidence = round(max(0.0, min(1.0, confidence)), 3)
     stats["model_confidence"] = round(model_conf, 3)
 
