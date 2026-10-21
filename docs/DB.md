@@ -47,6 +47,15 @@ flowchart LR
    - Name: `roadpush`
    - Database password: **영문 대소문자·숫자만으로 16자 이상** (특수문자가 있으면 주소에 넣을 때 URL 인코딩이 필요해 실수가 잦음). 비밀번호 관리 도구에 저장
    - Region: **Northeast Asia (Seoul)**
+   - Security 옵션 (프론트는 DB·Supabase API를 쓰지 않고 백엔드는 PostgreSQL에 직접 접속하므로 외부 API가 필요 없음)
+
+     | 옵션 | 설정 | 이유 |
+     |---|---|---|
+     | Enable Data API | **해제** | 테이블을 REST로 여는 기능. 쓰지 않으므로 끄면 노출 경로가 없어짐 |
+     | Automatically expose new tables | **해제** | 새 테이블이 자동으로 API에 열리지 않게 |
+     | Enable automatic RLS | **체크** | 새 테이블에 RLS 자동 적용. 마이그레이션도 RLS를 켜므로 이중 안전장치 |
+
+     이미 모두 체크한 채 만들었어도 마이그레이션이 RLS를 켜므로 데이터는 노출되지 않습니다. 나중에 Project Settings → Data API에서 끌 수 있습니다.
 2. 프로젝트 화면 상단 **Connect** → **Session pooler** 탭의 주소 복사 (호스트 이름은 대시보드에 나온 그대로)
    ```
    postgresql://postgres.<프로젝트ref>:[YOUR-PASSWORD]@<pooler 호스트>.pooler.supabase.com:5432/postgres
