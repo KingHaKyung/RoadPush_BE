@@ -1,0 +1,173 @@
+# RoadPush API (v1)
+
+기본 주소 `http://localhost:8000/api/v1` · 대화형 문서 `http://localhost:8000/docs`
+프론트 `.env`: `VITE_API_BASE_URL=http://localhost:8000/api/v1`
+
+응답의 앞부분은 **마스터 문서 4.4 공통 분석 응답 형식**과 이름·코드가 같습니다. 그 뒤에 화면용 필드를 덧붙였습니다.
+처리 상태 · AI 판정 · 검수 상태는 하나로 합치지 않습니다.
+
+## 엔드포인트
+
+| 기능 | 메서드 · 경로 | 설명 |
+|---|---|---|
+| | `GET /health` | 상태·사용 모델 |
+| F1 | `POST /observations/inspect` | 사진 EXIF의 촬영시각·GPS + (GPS가 있으면) 주변 구간 후보 |
+| F1 | `GET /sites/candidates?lat=&lng=&radius_m=` | 검색 반경 안 기존 구간 후보 (최근 사진 썸네일 포함) |
+| F1·F2 | `POST /observations` | 관측 등록 (multipart). **기존 구간(`site_id`) 또는 신규 구간(`new_site_name`) 필수**. 202 응답 후 비동기 분석 |
+| F3 | `GET /map` | 구간별 최신 촬영 관측 + 필요 시 이전 참고 관측 |
+| F4·F7 | `GET /observations` | 검수 표·목록. `processing_status`, `passability`, `review_status`, `site_id`, `source`, `since`, `until` |
+| F4 | `GET /observations/{id}` | 상세 |
+| F2 | `GET /observations/{id}/analyses` | 분석 이력 (자동 재시도 횟수, 사용자 재분석 구분, 근거 JSON) |
+| F7·F2 | `POST /observations/{id}/reanalyze` | 새 재분석 요청 → 새 analysis (기존 결과·검수 보존) |
+| F5 | `POST /observations/{id}/reviews` | 확인(의견) / 수정(사람 판정 + 이유). 분석 단위로 저장 |
+| F5 | `POST /observations/{id}/action` | 처리 상태 변경 (이 관측을 '조치 전'으로 하는 조치를 만들거나 갱신) |
+| F5 | `POST /observations/bulk-action` | 여러 관측 일괄 처리 |
+| F5 | `POST /actions` · `PATCH /actions/{id}` | 조치 생성·갱신, **조치 후 관측 연결**(`after_observation_id`) |
+| | `GET / POST /sites` · `GET / PATCH /sites/{id}` | 구간 |
+| F6 | `GET /sites/{id}/observations` | 같은 구간 관측 촬영시각 순 (전후 선택용) |
+| F6 | `GET /sites/{id}/actions` | 구간 조치 이력 |
+| F6 | `GET /sites/{id}/compare?before=&after=` | 전후 비교 |
+| | `GET /files/{key}` | 원본·overlay (응답 `images`에 전체 URL로 들어감) |
+
+## 등록 흐름 (4.6 F1·F2)
+
+```
+1. 사용자가 사진 선택
+2. POST /observations/inspect          → captured_at, lat, lng (없으면 null) + candidates
+3. 위치·시각이 없으면 사용자가 보완 (지도에서 위치 지정)
+   GET /sites/candidates?lat=&lng=     → 후보 구간 (거리·최근 사진)
+4. 사용자가 후보 중 하나를 고르거나 "일치하는 구간 없음 → 신규 등록"
+5. POST /observations  (site_id 또는 new_site_name)   → 202, processing_status=pending
+6. GET /observations/{id} 를 몇 초 간격으로 조회      → completed / failed
+```
+
+| 필드 | 필수 | 설명 |
+|---|---|---|
+| `file` | ✓ | jpg·jpeg·png·webp (영상 mp4·mov·avi·mkv는 선택 기능) |
+| `captured_at` | ✓ | ISO 8601 **시간대 포함**. 저장은 UTC, 응답은 +09:00 |
+| `captured_at_source` | | `exif` · `manual` · `device` |
+| `lat`, `lng` | | 촬영 좌표. 없으면 저장은 하되 신규 구간은 만들 수 없음 |
+| `location_source` | | `exif` · `manual` · `device` (지도에서 고친 위치의 출처) |
+| `site_id` | △ | 후보에서 확인한 기존 구간 |
+| `new_site_name`, `new_site_description` | △ | 일치하는 후보가 없을 때 신규 구간 |
+| `source` | | `upload`(기본) · `cctv` · `car` · `drone` |
+| `device`, `area`, `addr` | | |
+| `mask` | | 개발용: 미리 만든 통합 라벨 PNG(값 0~7) |
+
+오류: 형식 아님 415 · 손상 이미지·시간대 없음·구간 미확인 422 (관측을 만들지 않음).
+
+## 관측 응답 (`ObservationOut`)
+
+```jsonc
+{
+  // ── 마스터 문서 4.4 ──
+  "observation_id": "obs_8500215a8e0a",
+  "analysis_id": "ana_5efdfba9f5a7",
+  "site_id": "site_1f0c2b7d9a11",
+  "location": { "latitude": 37.3868, "longitude": 127.1273 },   // 좌표 없으면 null
+  "captured_at": "2026-10-20T14:30:00+09:00",
+  "processing_status": "completed",          // pending | processing | completed | failed
+  "passability": "narrowed",                 // passable | narrowed | blocked | undetermined, 처리중·실패면 null
+  "risk_score": 55,                          // 산출 불가면 null (0으로 쓰지 않음)
+  "uncertainty_reason": null,                // 판단 유보 사유
+  "images": {
+    "original": "http://…/files/observations/obs_…/original.jpg",
+    "surface_overlay": "http://…/files/analyses/ana_…/surface_overlay.jpg",     // 보도·차도·연석·장애물 색칠
+    "obstacle_overlay": "http://…/files/analyses/ana_…/obstacle_overlay.jpg"    // 점유(빨강)·남은 연속 통로(초록)·가장 좁은 단면(노랑)
+  },
+  "review_status": "pending",                // pending(미검수) | confirmed(확인) | corrected(수정) — 최신 분석 기준
+  "human_passability": null,                 // corrected일 때 사람 판정
+  // ── 추가 ──
+  "site_name": "서현로 18길", "link_id": "2060113500",
+  "source": "upload", "device": null, "location_source": "exif", "area": null, "addr": null,
+  "occupancy": 45,                           // 가장 좁은 단면의 점유율(%)
+  "bottleneck_ratio": 0.55,                  // 상대 유효폭 = 남은 연속 통로 / 추정 전체 보행폭
+  "bottleneck_m_est": 1.32,                  // 구간 실측 보도폭이 있을 때만 (판정에는 안 씀)
+  "risk_complete": false,                    // false = 길이 항 측정 불가, 폭 항만 반영한 '부분 상대 지표'
+  "causes": ["차량"],                         // 차량 · 공사시설 · 적치물 · 자전거 · PM (상태를 단정하지 않음)
+  "uncertainty_code": null,                  // occluded | mixed | low_coverage | low_confidence | night
+  "confidence": 0.79,
+  "reasons": ["남은 연속 통로가 가장 좁은 단면에서 보행폭의 55% (기준: 통과 ≥ 60%, 단절 < 30%)"],
+  "analysis_trigger": "initial",             // initial | reanalysis
+  "attempts": 1,
+  "failure_reason": null,                    // failed일 때 한 줄 사유
+  "review": null,                            // { id, analysis_id, status, human_passability, comment, reviewer, created_at }
+  "action": { "action_id": null, "state": "none", "label": "미처리", "dept": null },
+  "history": [{ "t": "2026-10-21T11:56:14+09:00", "txt": "AI 분석 완료 · 좁아짐 (상대 위험도 55)", "ai": true, "by": null }],
+  "model_version": "surface=selectstar-deeplabv3plus:selectstar_deeplab.pt + obstacles=yolo11n-seg.pt",
+  "rule_version": "rules-2026.10-b/policy-2026.10-draft"
+}
+```
+
+## 지도 (`GET /map`)
+
+```jsonc
+[{
+  "site_id": "site_…", "site_name": "서현로 18길",
+  "location": { "latitude": 37.38, "longitude": 127.12 },     // 구간 대표 위치
+  "latest": { /* ObservationOut: 촬영시각이 가장 늦은 관측 */ },
+  "reference": null,            // latest가 pending·processing·failed일 때만 이전 완료 관측
+  "effective_passability": "blocked",   // 지도 색: 관리자 판정 > AI 판정
+  "effective_source": "human"           // 출처 표시용
+}]
+```
+
+- 최신은 **촬영시각** 기준입니다. 늦게 올린 옛 사진은 최신이 아닙니다.
+- 최신이 판단 유보로 완료되면 그대로 유보입니다. 이전 정상 판정으로 숨기지 않습니다.
+- 새 관측에는 이전 관측의 사람 판단을 적용하지 않습니다.
+- `south`·`west`·`north`·`east`로 지도 범위를 거를 수 있습니다.
+
+## 검수·재분석·조치
+
+```jsonc
+// POST /observations/{id}/reviews     (analysis_id 생략 = 최신 완료 분석)
+{ "status": "confirmed", "comment": "현장 사진과 일치", "reviewer": "교통행정과" }
+{ "status": "corrected", "human_passability": "blocked", "comment": "차량 뒤쪽 보도까지 막힘", "reviewer": "교통행정과" }
+
+// POST /observations/{id}/reanalyze
+{ "note": "밝기 보정한 사진으로 다시" }
+
+// POST /observations/{id}/action    state: none | inspection_requested | in_progress | done
+{ "state": "inspection_requested", "dept": "주차관리과", "content": "차량 이동 요청", "actor": "교통행정과" }
+
+// PATCH /actions/{action_id}        재촬영 후 '조치 후 관측' 연결
+{ "after_observation_id": "obs_…", "state": "done", "note": "재촬영 확인" }
+```
+
+## 전후 비교 (`GET /sites/{id}/compare?before=&after=`)
+
+```jsonc
+{
+  "site_id": "site_…",
+  "before": { /* ObservationOut */ }, "after": { /* ObservationOut */ },
+  "actions": [{ "id": "act_…", "state": "done", "label": "조치 완료", "before_observation_id": "…", "after_observation_id": "…", "logs": [ … ] }],
+  "comparable": true,
+  "note": "같은 모델·규칙 기준. 촬영 위치·방향이 같은지는 사진으로 확인하세요",
+  "delta": { "passability": ["blocked", "passable"], "risk_score": -62, "bottleneck_ratio": 0.71 }
+}
+```
+모델·규칙 버전이 다르면 `comparable=false`, `delta=null` → 사진·상태만 비교하거나 같은 기준으로 재분석합니다.
+위험도 감소를 실제 사고 감소로 표현하지 않습니다.
+
+## 프론트 타입 매핑 (프론트 담당 참고)
+
+| 프론트 `Observation` | API | 비고 |
+|---|---|---|
+| `id` | `observation_id` | |
+| `src` | `source` | `upload`는 프론트 `Source`에 없음 → 타입 추가 필요 |
+| `dev` | `device` | |
+| `lat`, `lng` | `location?.latitude/longitude` | null이면 구간 위치 사용 또는 지도 표시 보류 |
+| `t` | `captured_at` | |
+| `pass` | `passability` | `undetermined` ↔ `hold`, 처리 전·실패는 null → 별도 표시 |
+| `risk` | `risk_score` | "상대 위험도"로 표시 권장 (`risk_complete=false`) |
+| `occ` | `occupancy` | |
+| `causes` | `causes` | |
+| `reason` | `uncertainty_reason` | |
+| `cond` | `uncertainty_code` | |
+| `action`, `dept` | `action.label`, `action.dept` | dept null → `미배정` |
+| `seg` | `site_id` (지도 링크는 `link_id`) | |
+| `human` | `human_passability` | |
+| `review` | `review_status` | pending→`미검수`, confirmed→`확인`, corrected→`수정` |
+| `reanalyze` | `processing_status in (pending, processing)` | |
+| `hist` | `history` | |
+| (없음) | `processing_status` | **처리중·실패 표시가 프론트에 필요** (4.3) |
