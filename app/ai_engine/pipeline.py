@@ -12,6 +12,7 @@ import cv2
 import numpy as np
 
 from ..config import get_settings
+from . import imageio
 from .obstacles import load_obstacles
 from .passability.overlay import image_quality, passage_overlay, surface_overlay
 from .passability.risk import risk_score
@@ -43,11 +44,11 @@ class EngineOutput:
 def read_frames(path: str, media_type: str) -> list[np.ndarray]:
     s = get_settings()
     if media_type == "image":
-        img = cv2.imread(path, cv2.IMREAD_COLOR)
+        img = imageio.imread(path)
         if img is None:
             raise InputError("이미지를 읽을 수 없습니다 (손상 또는 지원하지 않는 형식)")
         return [img]
-    cap = cv2.VideoCapture(path)
+    cap = cv2.VideoCapture(imageio.video_path(path))
     fps = cap.get(cv2.CAP_PROP_FPS) or 30
     step = max(1, int(round(fps * s.video_frame_interval_sec)))
     frames, i = [], 0

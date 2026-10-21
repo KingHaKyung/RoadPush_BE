@@ -48,13 +48,11 @@ def main() -> None:
         init_db()
         print("[OK] 마이그레이션 적용")
 
-    from alembic.config import Config
     from alembic.script import ScriptDirectory
 
-    root = Path(__file__).resolve().parents[1]
-    cfg = Config(str(root / "alembic.ini"))
-    cfg.set_main_option("script_location", str(root / "migrations"))
-    head = ScriptDirectory.from_config(cfg).get_current_head()
+    from app.db import alembic_config
+
+    head = ScriptDirectory.from_config(alembic_config()).get_current_head()
 
     insp = inspect(engine)
     existing = set(insp.get_table_names())

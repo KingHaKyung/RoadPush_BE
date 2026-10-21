@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from .api import actions, map, observations, sites
@@ -42,6 +43,12 @@ app.include_router(map.router, prefix=API)
 settings.storage_dir.mkdir(parents=True, exist_ok=True)
 # 원본·overlay 파일. 운영 단계에서는 인증된 URL로 바꾼다 (직접 촬영 자료의 얼굴·번호판 비식별 확인 필요)
 app.mount("/files", StaticFiles(directory=settings.storage_dir), name="files")
+
+
+@app.get("/", include_in_schema=False)
+def root():
+    """주소창에 서버 주소만 넣었을 때 API 문서 화면으로 보낸다"""
+    return RedirectResponse("/docs")
 
 
 @app.get(f"{API}/health")

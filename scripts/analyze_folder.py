@@ -17,11 +17,9 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-import cv2
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.ai_engine import pipeline  # noqa: E402
+from app.ai_engine import imageio, pipeline  # noqa: E402
 from app.ai_engine.passability.rules import Policy  # noqa: E402
 
 CLASSES = ["passable", "narrowed", "blocked", "undetermined"]
@@ -65,7 +63,7 @@ def main() -> None:
             continue
         r = out.result
         if "obstacle_overlay" in out.images:
-            cv2.imwrite(str(args.out / "overlays" / f"{p.stem}.jpg"), out.images["obstacle_overlay"])
+            imageio.imwrite(args.out / "overlays" / f"{p.stem}.jpg", out.images["obstacle_overlay"])
         gt = lab.get("label")
         if gt:
             conf[(gt, r.verdict)] += 1
