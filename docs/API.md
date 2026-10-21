@@ -204,7 +204,7 @@ sequenceDiagram
 | `cond` | `uncertainty_code` | |
 | `action`, `dept` | `action.label`, `action.dept` | dept null → `미배정` |
 | `seg` | `site_id` (지도 링크는 `link_id`) | |
-| `human` | `human_passability` | |
+| `human` | `human_passability` | 백엔드는 `undetermined`(사람도 판단 유보)도 허용 → 프론트 타입에 추가 필요 |
 | `review` | `review_status` | pending→`미검수`, confirmed→`확인`, corrected→`수정` |
 | `reanalyze` | `processing_status in (pending, processing)` | |
 | `hist` | `history` | |

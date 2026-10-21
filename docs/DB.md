@@ -1,47 +1,82 @@
 # DB 설계와 Supabase 연결
 
-## 1. Supabase(PostgreSQL)를 써도 되는가 → 써도 됩니다
+## 1. DB 구성
 
-| 확인 항목 | 판단 |
+| 환경 | DB | 사진·mask 파일 |
+|---|---|---|
+| 로컬 개발 (팀원 각자 PC) | SQLite (`roadpush.db`, 설치 불필요) | 각 PC의 `storage/` |
+| 배포 서버 (테스트 URL) | **Supabase PostgreSQL** | 배포 서버의 `storage/` |
+| 테스트 | SQLite 기본, `TEST_DATABASE_URL`로 PostgreSQL | 임시 폴더 |
+
+| 항목 | 내용 |
 |---|---|
-| 마스터 문서 원칙 "프론트는 DB에 직접 연결하지 않음" | 지킬 수 있음. Supabase를 **PostgreSQL 서버로만** 쓰고, 프론트는 백엔드 API만 부릅니다. supabase-js·anon 키를 프론트에 넣지 않습니다 |
-| 코드 변경량 | 거의 없음. `.env`의 `DATABASE_URL`만 바꾸면 됩니다. 같은 테스트를 로컬 PostgreSQL 16에서 돌려 통과를 확인했습니다 |
-| 테스트 URL 배포 (심사 기간 11월 중순까지) | 오히려 유리. 백엔드 서버를 옮기거나 재시작해도 데이터가 남습니다 |
-| 팀 공유 | 여러 명이 같은 데이터를 볼 수 있음. 단, 아래 "주의 2" 필수 |
-| 비용 | 무료 플랜(DB 500MB)으로 충분. 관측·분석 메타데이터만 들어가고 사진은 DB에 넣지 않습니다 |
+| 프론트 접근 | 프론트는 DB에 직접 연결하지 않음 (마스터 문서 3장). Supabase는 **PostgreSQL 서버로만** 쓰고 supabase-js·anon 키는 쓰지 않음 |
+| 전환 방법 | `.env`의 `DATABASE_URL`만 교체. 코드는 SQLite·PostgreSQL 공통이며 같은 테스트가 PostgreSQL 16에서 통과 |
+| 테이블 생성 | 서버 시작 때 Alembic 마이그레이션 자동 적용 |
+| 용량 | 관측·분석 메타데이터만 저장, 사진은 DB에 넣지 않음 → 무료 플랜(DB 500MB) 범위 |
 
-**주의할 점 (설정에 반영해 둠)**
+**운영 규칙**
 
 1. **외부 노출 차단**: Supabase는 `public` 스키마 테이블을 anon 키로 REST(Data API)에 자동 노출합니다.
    첫 마이그레이션이 모든 테이블에 **RLS(Row Level Security)를 켜고 정책을 두지 않아** 외부 접근을 막습니다.
-   백엔드는 `postgres` 역할로 접속해 영향을 받지 않습니다. 대시보드에서 정책을 추가하지 마세요.
+   백엔드는 `postgres` 역할로 접속해 영향을 받지 않습니다. 대시보드에서 정책을 추가하지 않습니다.
 2. **DB와 사진 저장소는 같이 다녀야 합니다**: DB에는 사진의 "저장 키"만 있고, 실제 파일은 그 서버의 `storage/` 폴더에 있습니다.
    팀원 여러 명이 각자 PC에서 **같은 Supabase DB**에 붙으면, A가 올린 사진은 B의 PC에 없어서 이미지가 깨집니다.
    → **팀원 로컬 개발은 각자 SQLite(기본값)**, **Supabase는 배포 서버 1대만** 연결합니다.
    팀원들이 같은 데이터를 봐야 하면 배포 서버의 API 주소를 쓰면 됩니다. (나중에 사진도 Supabase Storage로 옮기면 이 제약이 사라집니다)
 3. **연결 주소는 Session pooler**: Direct connection(`db.<ref>.supabase.co`)은 기본적으로 IPv6로만 열려 있어 IPv6가 안 되는 네트워크·서버에서는 안 붙습니다.
-   대시보드 **Connect → Session pooler** 주소(포트 5432)를 쓰세요. Transaction pooler(6543)도 동작하도록 설정해 두었습니다.
+   대시보드 **Connect → Session pooler** 주소(포트 5432)를 씁니다. Transaction pooler(6543)에서도 동작하도록 prepared statement를 끈 상태입니다.
 4. **무료 플랜 일시정지**: 무료 플랜 프로젝트는 일정 기간(현재 약 1주) 활동이 없으면 일시정지될 수 있습니다.
    배포 서버가 켜져 있으면 워커가 계속 DB를 조회하지만, 정확한 기준은 Supabase 요금 안내에서 확인하고
-   **심사 기간(11월 중순까지) 중 주기적으로 대시보드 상태를 확인**하세요. 일시정지되면 대시보드에서 복구(Restore)할 수 있습니다.
+   **심사 기간(11월 중순까지) 중 대시보드 상태를 주기적으로 확인**합니다. 일시정지되면 대시보드에서 복구(Restore)할 수 있습니다.
 
 ## 2. Supabase 연결 순서
 
-1. [supabase.com](https://supabase.com) → New project
+Supabase 프로젝트는 백엔드 담당 1명이 만들고, 연결은 처음 한 번 담당자 PC에서 확인한 뒤 배포 서버에 넣습니다.
+
+```mermaid
+flowchart LR
+    A["Supabase 프로젝트 생성<br/>(Seoul)"] --> B["Connect → Session pooler<br/>주소 복사"]
+    B --> C["로컬 .env의 DATABASE_URL에<br/>잠깐 넣기"]
+    C --> D["python scripts/check_db.py --upgrade<br/>→ 모두 OK"]
+    D --> E["로컬 .env는<br/>SQLite로 되돌리기"]
+    E --> F["배포 서버 .env에<br/>같은 주소 넣고 실행"]
+```
+
+1. [supabase.com](https://supabase.com) 가입 → **New project**
+   - Name: `roadpush`
+   - Database password: **영문 대소문자·숫자만으로 16자 이상** (특수문자가 있으면 주소에 넣을 때 URL 인코딩이 필요해 실수가 잦음). 비밀번호 관리 도구에 저장
    - Region: **Northeast Asia (Seoul)**
-   - Database password: 영문·숫자로 길게 (특수문자를 쓰면 주소에 넣을 때 URL 인코딩 필요). 팀 비밀번호 관리 도구에만 저장
-2. 프로젝트 화면 상단 **Connect** → **Session pooler** 주소 복사 (호스트 이름은 대시보드에 나온 그대로 씁니다)
+2. 프로젝트 화면 상단 **Connect** → **Session pooler** 탭의 주소 복사 (호스트 이름은 대시보드에 나온 그대로)
    ```
    postgresql://postgres.<프로젝트ref>:[YOUR-PASSWORD]@<pooler 호스트>.pooler.supabase.com:5432/postgres
    ```
-3. 앞부분을 `postgresql+psycopg://`로 바꾸고 끝에 `?sslmode=require`를 붙여 **배포 서버의** `.env`에 넣습니다
+3. 주소를 아래 형태로 바꿔 **로컬** `.env`의 `DATABASE_URL`에 넣습니다 (연결 확인용)
+   - 앞부분 `postgresql://` → `postgresql+psycopg://`
+   - `[YOUR-PASSWORD]` → 실제 비밀번호 (대괄호까지 지움)
+   - 끝에 `?sslmode=require` 추가
    ```
    DATABASE_URL=postgresql+psycopg://postgres.<ref>:<비밀번호>@<pooler 호스트>.pooler.supabase.com:5432/postgres?sslmode=require
    ```
-4. 백엔드를 실행하면 시작할 때 테이블이 자동으로 만들어집니다 (마이그레이션 적용). 직접 적용하려면 `alembic upgrade head`
-5. Supabase 대시보드 **Table Editor**에서 6개 테이블과 `alembic_version`이 보이면 완료. 각 테이블에 "RLS enabled" 표시가 있어야 합니다
+4. 가상환경을 활성화한 터미널에서 연결 확인 + 테이블 생성
+   ```bash
+   python scripts/check_db.py --upgrade
+   ```
+   모두 `[OK]`면 성공입니다.
+   ```
+   [OK] 연결 · PostgreSQL …
+   [OK] 마이그레이션 적용
+   [OK] 마이그레이션: DB=0001 / 코드=0001 → 최신
+   [OK] 테이블: 6/6
+   [OK] RLS(외부 API 노출 차단): 모든 테이블 켜짐
+   [OK] 데이터: 구간 0 · 관측 0
+   ```
+   `[FAIL] 연결 실패`면 출력된 안내(주소 형식·비밀번호·일시정지)를 확인합니다.
+5. Supabase 대시보드 **Table Editor**에서 6개 테이블과 `alembic_version`이 보이는지 확인합니다
+6. 로컬 `.env`의 `DATABASE_URL`을 `sqlite:///./roadpush.db`로 되돌립니다 (1장 운영 규칙 2)
+7. 배포 서버의 `.env`에 3번 주소를 넣고 백엔드를 실행합니다. 서버 시작 때 마이그레이션이 자동 적용됩니다
 
-`.env`는 Git에 올라가지 않습니다. 비밀번호를 메신저·문서·코드에 붙여 넣지 마세요.
+`.env`는 Git에 올라가지 않습니다. 비밀번호는 메신저·문서·코드에 붙여 넣지 않습니다.
 
 ## 3. 테이블 관계
 
@@ -196,12 +231,12 @@ erDiagram
 | state, dept, note, actor | | ✓ | 바뀐 상태·부서·메모·담당자 |
 | created_at | timestamptz | | |
 
-### 지금 없는 것 (필요해지면 추가)
+### 미포함 항목 (필요할 때 마이그레이션으로 추가)
 - 담당자 계정·권한 (마스터 문서: 임의 확정하지 않음)
 - 별도 파일 참조 테이블 (지금은 `original_key`, `analyses.files`에 저장 키)
 - 위험정보 유효시간, PostGIS 공간 인덱스 (전국 확장 때)
 
-## 5. 스키마를 바꿀 때
+## 5. 스키마 변경 절차
 
 테이블 정의(`app/db/models.py`)와 실제 DB가 어긋나지 않도록 **Alembic 마이그레이션**으로만 바꿉니다.
 Supabase 대시보드에서 직접 열을 추가·수정하지 마세요 (다음 마이그레이션과 꼬입니다).
@@ -225,4 +260,4 @@ alembic upgrade head --sql                                    # DB에 붙지 않
 
 - 자동 생성 파일은 꼭 열어 확인합니다 (이름 변경을 "삭제 + 추가"로 인식하는 등).
 - 이미 푸시한 마이그레이션 파일은 고치지 말고 새 파일을 추가합니다.
-- 두 사람이 동시에 마이그레이션을 만들면 순서가 갈라집니다. **스키마 변경은 백엔드 담당 한 명이 맡는 것**을 권합니다.
+- 두 사람이 동시에 마이그레이션을 만들면 순서가 갈라집니다. **스키마 변경은 백엔드 담당 한 명이 맡습니다.**

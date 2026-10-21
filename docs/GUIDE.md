@@ -1,9 +1,9 @@
 # RoadPush 백엔드 가이드
 
 > 기준: 마스터 설계·근거 문서 V4, 원 제안서, 사전질의 답변서 1~3, 산업통상부 공고 제2026-614호.
-> 처음 받아서 실행하는 방법은 [SETUP.md](SETUP.md), DB는 [DB.md](DB.md), API는 [API.md](API.md), 계산 규칙은 [PASSABILITY.md](PASSABILITY.md).
+> 로컬 실행 [SETUP.md](SETUP.md) · DB [DB.md](DB.md) · API [API.md](API.md) · 계산 규칙 [PASSABILITY.md](PASSABILITY.md)
 
-## 1. 무엇을 판단하는가
+## 1. 판단 대상과 범위
 
 **"보행자가 차도로 내려가지 않고 계속 걸을 공간이 남아 있는가."**
 장애물의 수나 종류가 아니라, 보도를 따라 입구부터 출구까지 이어지는 통로가 **유지되는지 · 좁아지는지 · 끊겨 차도 우회가 필요한지**를 봅니다.
@@ -119,7 +119,7 @@ docs/
 | 연결 확인 | dummy | 기본값. 모델 없이 API·프론트 확인 |
 
 DeepLab v3+와 YOLO 계열은 8GB에서 추론·미세조정 모두 무리 없습니다. 분석은 큐로 돌아 실시간이 필요 없습니다.
-**실제 모델 경로(selectstar·hf·yolo)는 GPU·가중치 없이 작성해 아직 실행 검증이 안 됐습니다.** 첫 실행 때 확인하세요.
+실제 모델 경로(selectstar·hf·yolo)는 GPU·가중치 환경에서의 실행 검증이 남아 있습니다.
 
 ## 5. 공모전 제출물과 백엔드가 맡을 일
 
@@ -136,9 +136,22 @@ DeepLab v3+와 YOLO 계열은 8GB에서 추론·미세조정 모두 무리 없�
 
 심사: 대국민 투표 50% + 전문가 50% (문제정의·AI 구현 수준·완성도·사회문제 기여·창의적 응용). 후보작 구현 가점 5점.
 
-**테스트 URL 배포**: 심사 기간 내내 노트북을 켜 둘 수는 없으니 클라우드 VM(CPU)에 백엔드 + 프론트 빌드를 올리고,
-DB는 Supabase를 씁니다 ([DB.md](DB.md)). DeepLab v3+·YOLO11n은 CPU로도 장당 수 초라 큐 구조에서 충분합니다.
-심사위원이 바로 볼 수 있게 분석이 끝난 시연 데이터를 미리 넣어 둡니다.
+### 테스트 URL 배포 구성
+
+```mermaid
+flowchart LR
+    U["심사위원·담당자<br/>브라우저"] -->|HTTPS| FE["프론트<br/>road-push-fe.vercel.app"]
+    FE -->|"HTTPS API 호출<br/>VITE_API_BASE_URL"| BE["백엔드 + 분석 워커<br/>클라우드 VM (CPU)"]
+    BE -->|"Session pooler"| DB[("Supabase<br/>PostgreSQL")]
+    BE --> ST["storage/<br/>원본·overlay"]
+```
+
+- 프론트는 이미 Vercel(HTTPS)에 배포되어 있습니다. HTTPS 페이지는 HTTP API를 부를 수 없으므로(브라우저 혼합 콘텐츠 차단)
+  **백엔드도 HTTPS 주소**가 필요합니다. VM 앞에 리버스 프록시(Caddy 등)로 인증서를 붙이거나, HTTPS를 기본 제공하는 호스팅을 씁니다.
+- 백엔드 `.env`: `DATABASE_URL`(Supabase), `CORS_ORIGINS`에 `https://road-push-fe.vercel.app` 포함(기본값에 들어 있음)
+- 프론트 Vercel 환경 변수: `VITE_API_BASE_URL=https://<백엔드 주소>/api/v1`
+- 심사 기간(11월 중순까지) 내내 켜져 있어야 하므로 노트북 서버는 쓰지 않습니다. DeepLab v3+·YOLO11n은 CPU로도 장당 수 초라 큐 구조에서 충분합니다.
+- 심사위원이 바로 볼 수 있게 분석이 끝난 시연 데이터를 미리 넣어 둡니다 (`scripts/seed_demo.py --base https://<백엔드 주소>/api/v1` 또는 실제 사진 등록).
 
 ## 6. 일정 (10/21 ~ 10/31)
 
@@ -156,7 +169,7 @@ DB는 Supabase를 씁니다 ([DB.md](DB.md)). DeepLab v3+·YOLO11n은 CPU로도 
 | 10/30 금 | 최종 검수 및 제출 | 테스트 URL·영상·서류 최종 점검 후 메일 제출 |
 | 10/31 토 | 공모전 마감 | 24:00 (주말이라 문의 불가) |
 
-## 7. 아직 정할 것
+## 7. 미정 사항
 
 1. 임계값(60%/30%)·위험도 가중치 — 10/24 보정 후 확정
 2. 구간 후보 검색 반경 (기본 50 m) — 실제 GPS 오차 보고 조정

@@ -9,7 +9,8 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./roadpush.db"
     storage_dir: Path = Path("./storage")
-    cors_origins: list[str] = ["http://localhost:5173"]
+    # 프론트 개발 서버 + Vercel 배포 주소
+    cors_origins: list[str] = ["http://localhost:5173", "https://road-push-fe.vercel.app"]
     # 응답의 captured_at 표시 시간대 (DB는 UTC 저장)
     display_utc_offset_hours: int = 9
 
