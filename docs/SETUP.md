@@ -1,6 +1,6 @@
-# 팀원 로컬 실행 가이드
+# 로컬 개발 환경 설정
 
-처음 받는 사람이 **자기 PC에서 백엔드를 띄우고, 시연 데이터를 넣고, API를 확인**하기까지의 순서입니다.
+로컬 PC에서 **백엔드 실행 → 시연 데이터 입력 → API 확인**까지의 순서입니다.
 GPU·모델 가중치·DB 설치 없이 끝까지 됩니다 (기본값: SQLite + dummy 모델). 15분 정도 걸립니다.
 
 ```mermaid
@@ -124,9 +124,9 @@ VITE_API_BASE_URL=http://localhost:8000/api/v1
 npm run dev     # http://localhost:5173
 ```
 프론트가 예시 데이터 대신 API를 쓰려면 프론트 쪽 연결 코드가 필요합니다 (필드 매핑은 [API.md](API.md) 마지막 표).
-백엔드는 `http://localhost:5173`에서 오는 요청을 허용해 두었습니다 (`.env`의 `CORS_ORIGINS`).
+허용 출처는 `.env`의 `CORS_ORIGINS`입니다 (기본: `http://localhost:5173`, `https://road-push-fe.vercel.app`).
 
-## 8. 실제 모델로 돌리기 (GPU가 있는 팀원)
+## 8. 실제 모델 실행 (GPU 환경)
 
 1. CUDA용 PyTorch 설치 — https://pytorch.org/get-started/locally/ 에서 OS·CUDA를 고르고 나온 명령을 그대로 씁니다. 예:
    ```bash
@@ -159,12 +159,14 @@ ruff check app tests scripts migrations
 ```
 코드를 고친 뒤 푸시하기 전에 두 명령이 통과하는지 확인합니다.
 
-## 10. DB 관련 약속
+## 10. DB 사용 규칙
 
 - **로컬 개발은 각자 SQLite(기본값)** 를 씁니다. 자기 PC의 `.env`에 Supabase 주소를 넣지 마세요.
   사진 파일은 각자 PC의 `storage/`에 저장되기 때문에, 공용 DB를 여러 PC가 같이 쓰면 서로의 이미지가 깨집니다 ([DB.md](DB.md) 1장).
 - Supabase는 **배포 서버만** 연결합니다. 팀원이 같은 데이터를 보려면 배포 서버 주소를 씁니다.
 - 테이블 구조 변경은 백엔드 담당이 Alembic 마이그레이션으로만 합니다 ([DB.md](DB.md) 5장). `git pull` 후 서버를 켜면 자동 적용됩니다.
+- 지금 연결된 DB 상태 확인: `python scripts/check_db.py` (연결·마이그레이션·테이블·RLS)
+- **Supabase 프로젝트 생성·연결(백엔드 담당)** 은 [DB.md 2장](DB.md#2-supabase-연결-순서)의 순서를 따릅니다.
 
 ## 11. Git 협업
 
