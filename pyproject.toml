@@ -17,11 +17,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# 실제 모델 추론용. torch는 CUDA 버전에 맞춰 따로 설치한다 (README 참고)
+# 실제 모델 추론용. torch·torchvision은 CUDA 버전에 맞춰 먼저 함께 설치한다 (docs/SETUP.md 8-1)
 ml = [
-    "torch>=2.3",
-    "transformers>=4.44",
+    "torch>=2.6",                 # transformers 5.x 요구
+    "torchvision",                # ultralytics 요구. torch와 같은 인덱스에서 설치
+    "transformers>=4.56",         # from_pretrained(dtype=...)
+    "scipy",                      # Mask2Former 로딩에 필요
     "ultralytics>=8.3",
+    "clip @ git+https://github.com/ultralytics/CLIP.git",  # YOLOE 텍스트 카테고리
 ]
 dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.6"]
 

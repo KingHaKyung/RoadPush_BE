@@ -23,7 +23,7 @@ class HFSemantic:
         self.processor = AutoImageProcessor.from_pretrained(model_id)
         self.universal = "mask2former" in model_id.lower()
         cls = AutoModelForUniversalSegmentation if self.universal else AutoModelForSemanticSegmentation
-        self.model = cls.from_pretrained(model_id, torch_dtype=self.dtype).to(self.device).eval()
+        self.model = cls.from_pretrained(model_id, dtype=self.dtype).to(self.device).eval()
         id2name = {int(k): v for k, v in self.model.config.id2label.items()}
         self.lut = np.array([name_label(id2name.get(i, "")) for i in range(max(id2name) + 1)], np.uint8)
         self.short_side = short_side

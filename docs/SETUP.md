@@ -28,8 +28,6 @@ flowchart LR
 > 1. https://nodejs.org 에서 **LTS** 버전(18 이상, 예: 20·22)을 내려받아 기본 옵션으로 설치합니다. npm도 함께 설치됩니다.
 > 2. 열려 있던 터미널을 **모두 닫고 새로 열어** `node --version`, `npm --version`을 확인합니다.
 > 3. 이미 설치돼 있는데 `v16.x` 이하로 나오면 같은 방법으로 LTS를 다시 설치합니다 (기존 버전 위에 덮어씀).
-> 4. **VS Code를 쓰면 VS Code도 완전히 종료했다가 다시 실행**합니다. VS Code 터미널은 VS Code가 켜질 때의 경로 설정을 그대로 써서,
->    Node 설치 전에 켜 둔 VS Code에서는 `node`를 찾지 못합니다 ([TROUBLESHOOTING.md T8](TROUBLESHOOTING.md#t8-명령-프롬프트에서는-node가-되는데-vs-code-터미널에서는-안-됨)).
 
 > Windows에서 `python`을 입력했는데 Microsoft Store가 열리면: 설정 → 앱 → 고급 앱 설정 → 앱 실행 별칭에서 `python.exe`, `python3.exe`를 끕니다.
 
@@ -148,28 +146,57 @@ npm run dev     # http://localhost:5173
 
 ## 8. 실제 모델 실행 (GPU 환경)
 
-1. CUDA용 PyTorch 설치 — https://pytorch.org/get-started/locally/ 에서 OS·CUDA를 고르고 나온 명령을 그대로 씁니다. 예:
+팀 모델(SelectStar DeepLab v3+ 가중치)을 받기 전에도 **8-1 ~ 8-3**은 미리 해 둘 수 있습니다.
+공개 모델로 GPU·라이브러리·분석 경로가 동작하는지 확인해 두면, 가중치를 받은 날에는 파일만 넣고 바로 돌릴 수 있습니다.
+
+### 8-1. CUDA용 PyTorch 설치
+1. 그래픽 드라이버 확인 — `nvidia-smi` 오른쪽 위 `CUDA Version`(예: 12.6)을 봅니다. 이 숫자 **이하**의 CUDA 빌드를 고릅니다.
+2. https://pytorch.org/get-started/locally/ 에서 Stable · Windows · Pip · Python · CUDA(12.6 등)를 고르고 나온 명령을 실행합니다.
+   **`torch`와 `torchvision`을 반드시 같은 명령으로 함께** 설치합니다. 예:
    ```bash
-   pip install torch --index-url https://download.pytorch.org/whl/cu124
+   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
    ```
-2. 모델 라이브러리
+   약 2.5GB를 내려받습니다. `torch`만 설치하고 다음 단계로 가면 pip가 버전이 맞지 않는 `torchvision`을 받거나,
+   CUDA용 `torch`를 다른 빌드로 바꿔 버릴 수 있습니다.
+3. 모델 라이브러리 (transformers·ultralytics·scipy·YOLOE용 CLIP). CLIP은 GitHub에서 받으므로 Git이 필요합니다
    ```bash
    pip install -e ".[ml]"
    ```
-3. 가중치 파일을 `model_weights/`에 넣기 ([model_weights/README.md](../model_weights/README.md))
-4. `.env` 수정 후 서버 재시작
+4. GPU 확인 — `True`와 그래픽카드 이름이 나와야 합니다
+   ```bash
+   python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+   ```
+   `False`면 CPU용 torch가 설치된 것이므로 `pip uninstall torch` 후 2번을 다시 합니다.
+
+### 8-2. 공개 모델로 분석 경로 점검 (팀 모델 없이)
+`.env`를 아래처럼 바꿉니다. 처음 실행할 때 모델을 자동으로 내려받습니다.
+```
+SURFACE_MODEL=hf
+SURFACE_WEIGHTS=facebook/mask2former-swin-tiny-cityscapes-semantic
+OBSTACLE_MODEL=yolo
+OBSTACLE_WEIGHTS=["model_weights/yolo11n-seg.pt"]
+DEVICE=cuda
+```
+보도·차량이 보이는 사진 몇 장을 `work/sample/` 폴더에 넣고 서버 없이 분석합니다.
+```bash
+python scripts/analyze_folder.py work/sample --out outputs/check_hf
+```
+`outputs/check_hf/results.csv`와 `overlays/<사진>_surface.jpg`(노면 결과)가 생기면 성공입니다.
+판정이 나온 사진은 `<사진>_passage.jpg`(남은 통로·점유)도 생깁니다. 공개 모델은 판단 유보가 많이 나올 수 있습니다. 이 단계의 목적은 **코드·GPU 동작 확인**이며,
+Mask2Former Swin-Tiny Cityscapes는 한국 보도에서 성능이 낮았던 비교 모델(마스터 문서 8장)이라 판정 정확도는 보지 않습니다.
+오류가 나면 전체 메시지를 백엔드 담당에게 전달합니다.
+
+### 8-3. 팀 모델을 받으면
+1. 모델 팀에게 받을 것: `selectstar_deeplab.pt`(TorchScript, 내보내는 방법은 `app/ai_engine/surface/selectstar.py` 맨 위), 클래스 0~6 순서, 전처리(정규화 값·입력 크기)
+2. 파일을 `model_weights/`에 넣고 `.env`의 노면 모델만 바꿉니다
    ```
    SURFACE_MODEL=selectstar
-   OBSTACLE_MODEL=yolo
-   OBSTACLE_WEIGHTS=["model_weights/yolo11n-seg.pt"]
-   DEVICE=cuda
+   SURFACE_WEIGHTS=model_weights/selectstar_deeplab.pt
    ```
-5. GPU 확인: `python -c "import torch; print(torch.cuda.is_available())"` → `True`
-
-서버 없이 사진 폴더만 분석하려면:
-```bash
-python scripts/analyze_folder.py <사진 폴더> --out outputs/test1
-```
+3. 8-2와 같은 사진으로 다시 분석해 결과를 비교합니다
+   ```bash
+   python scripts/analyze_folder.py work/sample --out outputs/check_selectstar
+   ```
 
 ## 9. 테스트
 
@@ -207,8 +234,6 @@ git push -u origin feat/짧은-설명              # GitHub에서 main으로 Pul
 | 증상 | 해결 |
 |---|---|
 | 프론트 `npm install` 실패 | `node --version`이 **v18 이상**인지, 프론트를 백엔드 폴더 **옆**에 받았는지 확인 ([T7](TROUBLESHOOTING.md#t7-프론트-npm-install-실패-예방)) |
-| cmd에서는 `node`가 되는데 VS Code 터미널에서는 `'node' 용어가 … 인식되지 않습니다` | VS Code 창을 **모두** 닫고 다시 실행 ([T8](TROUBLESHOOTING.md#t8-명령-프롬프트에서는-node가-되는데-vs-code-터미널에서는-안-됨)) |
-| VS Code 터미널에서 `npm.ps1 파일을 로드할 수 없습니다` | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` 또는 `npm.cmd install` ([T8](TROUBLESHOOTING.md#t8-명령-프롬프트에서는-node가-되는데-vs-code-터미널에서는-안-됨)) |
 | `npm audit fix --force` 하라는 경고 | 설치는 성공. 실행하지 않음 |
 | `UnicodeDecodeError: 'cp949' codec …` (서버 시작 시) | `git pull`로 최신 코드 받기 ([T5](TROUBLESHOOTING.md#t5-uvicorn-실행-시-unicodedecodeerror-cp949)). 로컬에서 `alembic.ini`를 고쳤다면 `git checkout -- alembic.ini` 후 `git pull` |
 | `{"detail":"Not Found"}` | 주소 뒤에 `/docs` 또는 `/api/v1/health`를 붙여 접속. 최신 코드는 `/`에서 `/docs`로 자동 이동 ([T6](TROUBLESHOOTING.md#t6-서버-주소로-접속하면-detailnot-found)) |
@@ -222,6 +247,6 @@ git push -u origin feat/짧은-설명              # GitHub에서 main으로 Pul
 | 관측이 `failed` | `GET /api/v1/observations/{id}/analyses`의 `error` 확인. `input`이면 사진 파일 문제 |
 | `422 구간을 확인해 주세요` | 등록할 때 `site_id`(기존 구간) 또는 `new_site_name`(신규 구간) 중 하나 필요 |
 | `422 captured_at에 시간대` | `2026-10-21T14:30:00+09:00`처럼 `+09:00` 붙이기 |
-| 실제 모델에서 `torch` 없음 | 8장 1~2번 |
+| 실제 모델에서 `torch` 없음 | [8-1](#8-1-cuda용-pytorch-설치) |
 | `torch.cuda.is_available()`이 False | CPU용 torch가 깔림 → `pip uninstall torch` 후 CUDA용 명령으로 다시 설치 |
 | DB를 초기화하고 싶음 | 서버 끄고 `roadpush.db`, `storage/` 삭제 |
