@@ -22,7 +22,12 @@ flowchart LR
 | Git | 아무거나 | `git --version` | https://git-scm.com |
 | Python | **3.11 또는 3.12 권장** (3.13도 기본 기능은 동작) | `python --version` | https://www.python.org/downloads/ (Windows: 설치 첫 화면에서 **Add python.exe to PATH** 체크) |
 | VS Code | 선택 | | Python 확장 설치 |
-| Node.js | 18 이상, 프론트도 띄울 때만 | `node --version` | https://nodejs.org |
+| Node.js | **18 이상 필수** (LTS 권장), 프론트도 띄울 때 | `node --version` → `v18.x` 이상 | https://nodejs.org → **LTS** 버튼 (아래 참고) |
+
+> **Node.js 설치 (18 이상)**: 프론트(Vite 5)는 Node 18 미만에서 설치·실행되지 않습니다.
+> 1. https://nodejs.org 에서 **LTS** 버전(18 이상, 예: 20·22)을 내려받아 기본 옵션으로 설치합니다. npm도 함께 설치됩니다.
+> 2. 열려 있던 터미널을 **모두 닫고 새로 열어** `node --version`, `npm --version`을 확인합니다.
+> 3. 이미 설치돼 있는데 `v16.x` 이하로 나오면 같은 방법으로 LTS를 다시 설치합니다 (기존 버전 위에 덮어씀).
 
 > Windows에서 `python`을 입력했는데 Microsoft Store가 열리면: 설정 → 앱 → 고급 앱 설정 → 앱 실행 별칭에서 `python.exe`, `python3.exe`를 끕니다.
 
@@ -118,7 +123,7 @@ C:\dev\
 ├─ RoadPush_BE\      ← 백엔드
 └─ RoadPush_FE\      ← 프론트
 ```
-1. Node.js 확인 — `node --version`이 **v18 이상**이어야 합니다. 없으면 https://nodejs.org 에서 LTS 설치 후 터미널을 새로 엽니다.
+1. Node.js 확인 — `node --version`이 **v18 이상**이어야 합니다. 없거나 낮으면 [0장](#0-준비물)의 Node.js 설치를 먼저 합니다.
 2. 새 터미널(백엔드 서버 터미널과 별도)에서:
 ```powershell
 cd C:\dev                    # RoadPush_BE가 있는 상위 폴더
@@ -127,7 +132,7 @@ cd RoadPush_FE
 npm install
 ```
 `added 74 packages …`가 나오면 성공입니다. 이어서 나오는 `2 vulnerabilities … npm audit fix --force`는 경고이며,
-**`npm audit fix --force`는 실행하지 않습니다**. 설치가 안 되면 [TROUBLESHOOTING.md T7](TROUBLESHOOTING.md#t7-프론트-npm-install이-안-됨).
+**`npm audit fix --force`는 실행하지 않습니다**. 설치가 안 되면 [TROUBLESHOOTING.md T7](TROUBLESHOOTING.md#t7-프론트-npm-install-실패-예방).
 `RoadPush_FE/.env`:
 ```
 VITE_API_BASE_URL=http://localhost:8000/api/v1
@@ -199,7 +204,7 @@ git push -u origin feat/짧은-설명              # GitHub에서 main으로 Pul
 
 | 증상 | 해결 |
 |---|---|
-| 프론트 `npm install` 실패 | 프론트를 백엔드 폴더 **옆**에 받았는지, `node --version`이 v18 이상인지 확인 ([T7](TROUBLESHOOTING.md#t7-프론트-npm-install이-안-됨)) |
+| 프론트 `npm install` 실패 | `node --version`이 **v18 이상**인지, 프론트를 백엔드 폴더 **옆**에 받았는지 확인 ([T7](TROUBLESHOOTING.md#t7-프론트-npm-install-실패-예방)) |
 | `npm audit fix --force` 하라는 경고 | 설치는 성공. 실행하지 않음 |
 | `UnicodeDecodeError: 'cp949' codec …` (서버 시작 시) | `git pull`로 최신 코드 받기 ([T5](TROUBLESHOOTING.md#t5-uvicorn-실행-시-unicodedecodeerror-cp949)). 로컬에서 `alembic.ini`를 고쳤다면 `git checkout -- alembic.ini` 후 `git pull` |
 | `{"detail":"Not Found"}` | 주소 뒤에 `/docs` 또는 `/api/v1/health`를 붙여 접속. 최신 코드는 `/`에서 `/docs`로 자동 이동 ([T6](TROUBLESHOOTING.md#t6-서버-주소로-접속하면-detailnot-found)) |
