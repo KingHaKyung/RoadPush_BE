@@ -3,24 +3,26 @@
 프론트(`RoadPush_FE`)가 예시 데이터 대신 백엔드 API의 데이터(Supabase에 저장된 관측)를 보여 주도록 바꾸는 방법입니다.
 **프론트 담당**이 적용하고, 백엔드 담당이 아래 "전체 테스트 순서"로 확인합니다.
 
-- 적용 파일: [`docs/frontend/api-connect.patch`](frontend/api-connect.patch) (프론트 8개 파일, +189 / −33줄)
-- 기준: 프론트 `main` `21b5ed1`에 그대로 적용되는 것을 확인했습니다.
+- **반영 상태**: 프론트 [PR #1](https://github.com/KingHaKyung/RoadPush_FE/pull/1) (`feat/api-connect`)에 반영했습니다. 이 PR을 합치면 1장의 패치 적용은 필요 없습니다.
+- 원본 패치: [`docs/frontend/api-connect.patch`](frontend/api-connect.patch) (프론트 8개 파일, +189 / −33줄). 프론트 `21b5ed1` 기준이라 그 뒤 바뀐 프론트(`efe869a`)에는 그대로 적용되지 않아, PR에서는 같은 내용을 직접 옮겼습니다.
 - 확인 결과: 백엔드(PostgreSQL) + 시연 데이터 + 프론트 개발 서버를 브라우저로 띄워 아래 항목이 동작함을 확인했습니다.
   - 관측 목록에 백엔드 데이터 표시, 상세에서 실제 사진·분석 이미지 표시
   - 목록에서 처리 상태를 바꾸면 백엔드(DB)에 저장
   - 백엔드가 꺼져 있으면 상단에 "백엔드 연결 실패" 표시
-  - `VITE_API_BASE_URL`을 비우면 지금과 똑같이 예시 데이터 20건으로 동작
+  - `VITE_API_BASE_URL`을 비우면 지금과 똑같이 예시 데이터(28건)로 동작
 
 ```mermaid
 flowchart LR
     U["브라우저<br/>localhost:5173"] --> FE["프론트<br/>useObservations"]
     FE -->|"VITE_API_BASE_URL 있음"| API["백엔드 API<br/>localhost:8000/api/v1"]
-    FE -->|"없음"| SAMPLE["예시 데이터 20건<br/>(지금과 동일)"]
+    FE -->|"없음"| SAMPLE["예시 데이터 28건<br/>(지금과 동일)"]
     API --> DB[("Supabase<br/>PostgreSQL")]
     API --> FILES["storage/<br/>사진·분석 이미지"]
 ```
 
 ## 1. 적용 방법 (프론트 담당)
+
+> 프론트 [PR #1](https://github.com/KingHaKyung/RoadPush_FE/pull/1)을 `main`에 합치면 이 장은 건너뜁니다. 합치기 전에 확인하려면 프론트에서 `git checkout feat/api-connect`.
 
 두 저장소가 같은 상위 폴더에 나란히 있다고 가정합니다 (`C:\dev\RoadPush_BE`, `C:\dev\RoadPush_FE`).
 
@@ -54,6 +56,19 @@ GitHub에서 `feat/api-connect` → `main` Pull Request로 검토 후 합칩니�
 | `src/components/FrameView.tsx` | 사진 주소가 있으면 그림 대신 **실제 사진** 표시 ('분석' 보기면 분석 이미지) |
 | `src/components/Header.tsx` | API 모드: 최종 촬영 시각·수집 경로별 건수·"백엔드 연결/연결 실패" 표시. 예시 모드: 기존 그대로 |
 
+### 화면에서만 계산하는 값 (백엔드에 저장하지 않음)
+
+PR #1에서 추가된 부분입니다. 처리 상태·담당 부서·원인은 백엔드 값을 그대로 쓰고, 아래 값은 프론트가 관측 이력으로 계산해 보여 주기만 합니다.
+
+| 값 | 내용 |
+|---|---|
+| 처리 경로 | 원인별 처리 유형(A 운영사 수거 · B 점유자 계도 · C 단속 · D 허가 확인 · E 수거)·기본 부서·안내. 원인이 둘이고 기본 부서가 다르면 처리 요청서에 두 부서를 모두 적음 |
+| 지속성 | 같은 지점의 최근 7일 같은 원인 감지로 일시 / 지속 N일 / 상습 N회 |
+| 현장 확인 | 처리를 넘긴 뒤 다음 관측에서 원인이 사라지면 해소 확인, 다음 관측이 없으면 새 관측 대기, 사라졌다 다시 나타나면 재발 |
+
+- **처리 요청서 복사·전달** 버튼: 처리 상태를 `현장점검 요청`으로 바꾸고, 담당 부서가 비어 있으면 첫 원인의 기본 부서를 넣습니다 (`bulk-action`으로 저장).
+- **오탐 처리** 버튼: 사람 판정을 `통과 가능`으로 저장합니다 (`reviews`, `corrected`). 오탐 사유는 아직 저장하지 않습니다.
+
 ### 화면 동작 → 백엔드 호출
 
 | 화면 동작 | 호출 |
@@ -78,6 +93,7 @@ GitHub에서 `feat/api-connect` → `main` Pull Request로 검토 후 합칩니�
 화면에서 눌러도 동작은 하지만 새로고침하면 사라집니다. 필요해지면 백엔드에 API를 추가합니다.
 - 사람 판정 **취소**, 재분석 요청 **취소**
 - 상세의 **메모** (처리 상태를 함께 바꿀 때는 조치 메모로 저장됨)
+- **오탐 사유** (사람 판정 `통과 가능`만 저장됨)
 - 행정구역·주소(`area`, `addr`): 등록할 때 넣은 값만 표시 (자동 역지오코딩 없음)
 
 ## 3. 전체 테스트 순서 (백엔드 담당)
@@ -128,12 +144,13 @@ http://localhost:8000/docs → `POST /api/v1/observations` → **Try it out**
 ### ⑤ Supabase에서 확인
 Table Editor → `sites`, `observations`, `analyses`에 행이 생겼는지 확인합니다. `analyses.status`가 `completed`면 분석 완료입니다.
 
-### ⑥ 프론트 실행 (터미널 3, 패치를 적용한 브랜치에서)
+### ⑥ 프론트 실행 (터미널 3, PR #1을 합친 `main` 또는 `feat/api-connect`에서)
 `RoadPush_FE\.env`:
 ```
-VITE_VWORLD_KEY=브이월드_인증키
+VWORLD_KEY=브이월드_인증키
 VITE_API_BASE_URL=http://localhost:8000/api/v1
 ```
+브이월드 키는 `VITE_` 접두사 없이 넣습니다. 브라우저 코드에 들어가지 않고 프론트 개발 서버가 대신 붙여 요청합니다. 키가 없으면 지도는 약도(SVG)로 나옵니다.
 ```powershell
 cd C:\dev\RoadPush_FE
 npm run dev
