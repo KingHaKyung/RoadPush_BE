@@ -28,6 +28,8 @@ flowchart LR
 > 1. https://nodejs.org 에서 **LTS** 버전(18 이상, 예: 20·22)을 내려받아 기본 옵션으로 설치합니다. npm도 함께 설치됩니다.
 > 2. 열려 있던 터미널을 **모두 닫고 새로 열어** `node --version`, `npm --version`을 확인합니다.
 > 3. 이미 설치돼 있는데 `v16.x` 이하로 나오면 같은 방법으로 LTS를 다시 설치합니다 (기존 버전 위에 덮어씀).
+> 4. **VS Code를 쓰면 VS Code도 완전히 종료했다가 다시 실행**합니다. VS Code 터미널은 VS Code가 켜질 때의 경로 설정을 그대로 써서,
+>    Node 설치 전에 켜 둔 VS Code에서는 `node`를 찾지 못합니다 ([TROUBLESHOOTING.md T8](TROUBLESHOOTING.md#t8-명령-프롬프트에서는-node가-되는데-vs-code-터미널에서는-안-됨)).
 
 > Windows에서 `python`을 입력했는데 Microsoft Store가 열리면: 설정 → 앱 → 고급 앱 설정 → 앱 실행 별칭에서 `python.exe`, `python3.exe`를 끕니다.
 
@@ -205,6 +207,8 @@ git push -u origin feat/짧은-설명              # GitHub에서 main으로 Pul
 | 증상 | 해결 |
 |---|---|
 | 프론트 `npm install` 실패 | `node --version`이 **v18 이상**인지, 프론트를 백엔드 폴더 **옆**에 받았는지 확인 ([T7](TROUBLESHOOTING.md#t7-프론트-npm-install-실패-예방)) |
+| cmd에서는 `node`가 되는데 VS Code 터미널에서는 `'node' 용어가 … 인식되지 않습니다` | VS Code 창을 **모두** 닫고 다시 실행 ([T8](TROUBLESHOOTING.md#t8-명령-프롬프트에서는-node가-되는데-vs-code-터미널에서는-안-됨)) |
+| VS Code 터미널에서 `npm.ps1 파일을 로드할 수 없습니다` | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` 또는 `npm.cmd install` ([T8](TROUBLESHOOTING.md#t8-명령-프롬프트에서는-node가-되는데-vs-code-터미널에서는-안-됨)) |
 | `npm audit fix --force` 하라는 경고 | 설치는 성공. 실행하지 않음 |
 | `UnicodeDecodeError: 'cp949' codec …` (서버 시작 시) | `git pull`로 최신 코드 받기 ([T5](TROUBLESHOOTING.md#t5-uvicorn-실행-시-unicodedecodeerror-cp949)). 로컬에서 `alembic.ini`를 고쳤다면 `git checkout -- alembic.ini` 후 `git pull` |
 | `{"detail":"Not Found"}` | 주소 뒤에 `/docs` 또는 `/api/v1/health`를 붙여 접속. 최신 코드는 `/`에서 `/docs`로 자동 이동 ([T6](TROUBLESHOOTING.md#t6-서버-주소로-접속하면-detailnot-found)) |
