@@ -150,7 +150,15 @@ npm run dev     # http://localhost:5173
 공개 모델로 GPU·라이브러리·분석 경로가 동작하는지 확인해 두면, 가중치를 받은 날에는 파일만 넣고 바로 돌릴 수 있습니다.
 
 ### 8-1. CUDA용 PyTorch 설치
-1. 그래픽 드라이버 확인 — `nvidia-smi` 오른쪽 위 `CUDA Version`(예: 12.6)을 봅니다. 이 숫자 **이하**의 CUDA 빌드를 고릅니다.
+
+> **CUDA Toolkit·cuDNN은 따로 설치하지 않아도 됩니다.** pip로 받는 PyTorch에 CUDA 실행 파일과 cuDNN이 들어 있어서,
+> PC에 설치된 CUDA Toolkit(예: 11.2)·cuDNN(예: 8.1)은 PyTorch가 쓰지 않습니다. 필요한 것은 **NVIDIA 그래픽 드라이버**뿐입니다.
+> 이미 설치된 CUDA 11.2·cuDNN 8.1은 지우지 않아도 되며(다른 프로그램이 쓸 수 있음), PyTorch와 충돌하지 않습니다.
+> 참고로 RTX 40 시리즈는 CUDA 11.8 이상에서 정식 지원되므로 CUDA 11.2용 빌드는 고르지 않습니다.
+
+1. 그래픽 드라이버 확인 — `nvidia-smi` 오른쪽 위 `CUDA Version`(예: 12.6)을 봅니다. 이 값은 설치한 CUDA Toolkit 버전이 아니라
+   **드라이버가 지원하는 최대 버전**입니다. 이 숫자 **이하**의 PyTorch CUDA 빌드(12.6, 12.4, 11.8 중)를 고릅니다.
+   12.x보다 낮게 나오면 [NVIDIA 드라이버](https://www.nvidia.com/ko-kr/drivers/)를 최신으로 업데이트한 뒤 다시 확인합니다.
 2. https://pytorch.org/get-started/locally/ 에서 Stable · Windows · Pip · Python · CUDA(12.6 등)를 고르고 나온 명령을 실행합니다.
    **`torch`와 `torchvision`을 반드시 같은 명령으로 함께** 설치합니다. 예:
    ```bash
