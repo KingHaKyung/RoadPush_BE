@@ -67,7 +67,7 @@ PR #1에서 추가된 부분입니다. 처리 상태·담당 부서·원인은 �
 | 현장 확인 | 처리를 넘긴 뒤 다음 관측에서 원인이 사라지면 해소 확인, 다음 관측이 없으면 새 관측 대기, 사라졌다 다시 나타나면 재발 |
 
 - **처리 요청서 복사·전달** 버튼: 처리 상태를 `현장점검 요청`으로 바꾸고, 담당 부서가 비어 있으면 첫 원인의 기본 부서를 넣습니다 (`bulk-action`으로 저장).
-- **오탐 처리** 버튼: 사람 판정을 `통과 가능`으로 저장합니다 (`reviews`, `corrected`). 오탐 사유는 아직 저장하지 않습니다.
+- **오탐 처리** 버튼: 사람 판정을 `통과 가능`으로 저장합니다 (`reviews`, `corrected`). 오탐 사유는 `comment`로 보내면 저장됩니다 (아래 2-1).
 
 ### 화면 동작 → 백엔드 호출
 
@@ -77,6 +77,9 @@ PR #1에서 추가된 부분입니다. 처리 상태·담당 부서·원인은 �
 | 처리 상태·담당 부서 변경 (단건·일괄) | `POST /observations/bulk-action` |
 | 판단 유보에서 사람 판정 | `POST /observations/{id}/reviews` (`corrected`) |
 | 재분석 요청 | `POST /observations/{id}/reanalyze` |
+| 재분석 요청 취소 | `POST /observations/{id}/reanalyze/cancel` (2-1 반영 후) |
+| 사람 판정 취소 | `POST /observations/{id}/reviews/cancel` (2-1 반영 후) |
+| 상세 메모 | `POST /observations/{id}/notes` (2-1 반영 후) |
 | 사진·분석 이미지 | 응답의 `images` 주소 (`/files/…`) |
 
 ### 백엔드 값 → 화면 값
@@ -87,14 +90,43 @@ PR #1에서 추가된 부분입니다. 처리 상태·담당 부서·원인은 �
 | `review_status` `pending` · `confirmed` · `corrected` | `미검수` · `확인` · `수정` |
 | `action.label`, `action.dept` (`null`) | 처리 상태, 담당 부서 (`미배정`) |
 | `link_id` | 지도 구간. 예시 지역 링크가 아니면 좌표에서 가장 가까운 링크 |
-| `location` 없음 | 위치 확인 전이라 화면에서 제외 |
+| `location` | 구간 대표 위치. 같은 구간 관측은 같은 좌표라 지도 핀·지속성·현장 확인이 구간 단위로 묶임 (사진 좌표는 `capture_location`) |
 
-### 아직 백엔드에 저장되지 않는 것
-화면에서 눌러도 동작은 하지만 새로고침하면 사라집니다. 필요해지면 백엔드에 API를 추가합니다.
-- 사람 판정 **취소**, 재분석 요청 **취소**
-- 상세의 **메모** (처리 상태를 함께 바꿀 때는 조치 메모로 저장됨)
-- **오탐 사유** (사람 판정 `통과 가능`만 저장됨)
-- 행정구역·주소(`area`, `addr`): 등록할 때 넣은 값만 표시 (자동 역지오코딩 없음)
+### 2-1. 판정 취소·재분석 취소·메모·오탐 사유 저장 (프론트 반영 필요)
+
+백엔드 API는 추가됐습니다. 프론트가 아직 호출하지 않아, 반영 전에는 화면에서 눌러도 새로고침하면 사라집니다.
+
+| 화면 동작 | 지금 프론트 | 바꿀 호출 | 응답 |
+|---|---|---|---|
+| 판단 유보 **판정 취소** | 아무것도 안 보냄 | `POST /observations/{id}/reviews/cancel` `{ reviewer }` | `review_status=pending`, `human_passability=null`. 검수가 없으면 409 |
+| **재분석 요청 취소** | 아무것도 안 보냄 | `POST /observations/{id}/reanalyze/cancel` | 이전 분석 결과·검수로 돌아감. 이미 분석이 시작됐으면 409 → "이미 분석 중" 안내 |
+| 상세 **메모** | `onUpdate({}, '메모: …')` → 안 보냄 | `POST /observations/{id}/notes` `{ content, author }` | 201. `history`에 `메모: …`로 들어감 |
+| **오탐 사유** | `review()`가 사유를 안 보냄 | 기존 `POST /observations/{id}/reviews`에 `comment: 사유` 추가 | `history`에 `판정 수정 → 통과 가능 · 사유` |
+
+`src/api/client.ts`에 추가할 호출 예:
+
+```ts
+export const review = (id: string, human: Pass | null, comment?: string) =>
+  call<AnalysisResponse>(`/observations/${id}/reviews`, {
+    method: 'POST',
+    body: JSON.stringify(human
+      ? { status: 'corrected', human_passability: human === 'hold' ? 'undetermined' : human, comment, reviewer: '교통행정과' }
+      : { status: 'confirmed', comment, reviewer: '교통행정과' }),
+  });
+export const cancelReview = (id: string) =>
+  call<AnalysisResponse>(`/observations/${id}/reviews/cancel`, { method: 'POST', body: JSON.stringify({ reviewer: '교통행정과' }) });
+export const cancelReanalyze = (id: string) =>
+  call<AnalysisResponse>(`/observations/${id}/reanalyze/cancel`, { method: 'POST', body: '{}' });
+export const addNote = (id: string, content: string) =>
+  call<AnalysisResponse>(`/observations/${id}/notes`, { method: 'POST', body: JSON.stringify({ content, author: '교통행정과' }) });
+```
+
+`useApiObservations.update()`에서는 `patch.review === '미검수'`면 `cancelReview`, `patch.reanalyze === false`면 `cancelReanalyze`를 부르고,
+메모는 `ObservationPatch`에 값이 없으므로 `ObservationDetail`이 `addNote`를 직접 부르거나 `update`에 메모 인자를 추가합니다.
+
+### 행정구역·주소 (`area`, `addr`)
+등록할 때 비워 두면 분석 워커가 브이월드 역지오코딩으로 채웁니다 (백엔드 `.env`의 `VWORLD_KEY`, 프론트와 같은 키 사용 가능).
+형식은 프론트 `npm run geocode`와 같습니다. 이미 등록한 관측은 `python scripts/geocode_observations.py`.
 
 ## 3. 전체 테스트 순서 (백엔드 담당)
 

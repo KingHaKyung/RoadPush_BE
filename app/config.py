@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     nodelink_path: Path = Path("data/roadpush_seongnam_nodelink.geojson")
     link_match_max_m: float = 40.0
 
+    # 행정구역·주소 자동 채우기 (브이월드 역지오코딩). 비우면 등록 때 넣은 값만 쓴다
+    vworld_key: str = ""
+    vworld_domain: str = "http://localhost:5173"  # 인증키에 등록한 서비스 URL
+    geocode_timeout_sec: float = 5.0
+
 
 @lru_cache
 def get_settings() -> Settings:

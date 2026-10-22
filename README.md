@@ -70,8 +70,8 @@ python scripts/seed_demo.py       # 다른 터미널에서: 시연 데이터 넣
 | 관측 등록 | 사진 EXIF 읽기 · 구간 후보 확인 · 등록 | `POST /observations/inspect` · `GET /sites/candidates` · `POST /observations` |
 | 위험 지도 | 구간별 최신 촬영 관측, 처리중이면 이전 결과 참고 | `GET /map` |
 | 관측 목록 | 필터·정렬, 처리 상태 변경, 일괄 처리 | `GET /observations` · `POST /observations/{id}/action` · `POST /observations/bulk-action` |
-| 판단 유보 | 사람 판정·재분석 요청 | `GET /observations?passability=undetermined` · `POST …/reviews` · `POST …/reanalyze` |
-| 상세 | 원본·overlay·근거·이력 | `GET /observations/{id}` · `GET /observations/{id}/analyses` |
+| 판단 유보 | 사람 판정·재분석 요청과 취소 | `GET /observations?passability=undetermined` · `POST …/reviews` · `POST …/reviews/cancel` · `POST …/reanalyze` · `POST …/reanalyze/cancel` |
+| 상세 | 원본·overlay·근거·이력·메모 | `GET /observations/{id}` · `GET /observations/{id}/analyses` · `POST /observations/{id}/notes` |
 | 전후 비교 | 같은 구간 조치 전후 | `PATCH /actions/{id}` · `GET /sites/{id}/compare` |
 
 ## 폴더 구조

@@ -1,5 +1,5 @@
 """
-F1 관측 등록·구간 확인 · F2 분석 상태 · F4 상세 · F5 확인·수정 · F7 검수 표
+F1 관측 등록·구간 확인 · F2 분석 상태 · F4 상세 · F5 확인·수정·취소 · F7 검수 표 · 메모
 """
 
 from datetime import UTC, datetime
@@ -8,11 +8,12 @@ from pathlib import Path
 import cv2
 import numpy as np
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..db import get_db
-from ..db.models import Analysis, Observation, Review, Site
+from ..db.models import Analysis, Observation, ObservationNote, Review, Site
 from ..services import views
 from ..services.exif import read_exif
 from ..services.nodelink import nearest_links
@@ -21,9 +22,11 @@ from .deps import file_url_for
 from .schemas import (
     AnalysisOut,
     InspectOut,
+    NoteIn,
     Passability,
     ProcessingStatus,
     ReanalyzeIn,
+    ReviewCancelIn,
     ReviewIn,
     ReviewStatus,
 )
@@ -195,6 +198,25 @@ def reanalyze(obs_id: str, request: Request, body: ReanalyzeIn | None = None, db
     return one(db, obs_id, request)
 
 
+@router.post("/{obs_id}/reanalyze/cancel", response_model=Out)
+def cancel_reanalyze(obs_id: str, request: Request, db: Session = Depends(get_db)):
+    """시작 전인 재분석 요청 취소 → 이전 분석 결과·검수로 돌아간다. 처음 분석과 이미 시작한 분석은 취소하지 않는다"""
+    obs = load(db, obs_id)
+    last = views.latest_analysis(obs)
+    if last is None or last.trigger != "reanalysis" or last.status not in ("pending", "processing"):
+        raise HTTPException(409, "취소할 재분석 요청이 없습니다")
+    # 워커가 그사이 가져갔을 수 있으니 pending일 때만 바꾼다
+    done = db.execute(
+        update(Analysis)
+        .where(Analysis.id == last.id, Analysis.status == "pending")
+        .values(status="cancelled", finished_at=datetime.now(UTC))
+    )
+    db.commit()
+    if done.rowcount == 0:
+        raise HTTPException(409, "이미 분석이 시작돼 취소할 수 없습니다")
+    return one(db, obs_id, request)
+
+
 @router.post("/{obs_id}/reviews", response_model=Out)
 def add_review(obs_id: str, body: ReviewIn, request: Request, db: Session = Depends(get_db)):
     """관리자 확인(의견) 또는 수정(사람 판정 + 이유). AI 결과는 그대로 둔다"""
@@ -218,5 +240,35 @@ def add_review(obs_id: str, body: ReviewIn, request: Request, db: Session = Depe
             reviewer=body.reviewer,
         )
     )
+    db.commit()
+    return one(db, obs_id, request)
+
+
+@router.post("/{obs_id}/reviews/cancel", response_model=Out)
+def cancel_review(obs_id: str, request: Request, body: ReviewCancelIn | None = None, db: Session = Depends(get_db)):
+    """확인·수정 취소 → 미검수. 이력은 지우지 않고 취소 행을 덧붙인다"""
+    body = body or ReviewCancelIn()
+    obs = load(db, obs_id)
+    if body.analysis_id:
+        ana = next((a for a in obs.analyses if a.id == body.analysis_id), None)
+        if ana is None:
+            raise HTTPException(404, "이 관측의 분석이 아닙니다")
+    else:
+        ana = views.latest_completed(obs)
+    if ana is None or not ana.reviews or ana.reviews[-1].status == "cancelled":
+        raise HTTPException(409, "취소할 검수가 없습니다")
+    db.add(Review(analysis_id=ana.id, status="cancelled", comment=body.comment, reviewer=body.reviewer))
+    db.commit()
+    return one(db, obs_id, request)
+
+
+@router.post("/{obs_id}/notes", response_model=Out, status_code=201)
+def add_note(obs_id: str, body: NoteIn, request: Request, db: Session = Depends(get_db)):
+    """메모 (예: 운영사 수거 요청 접수번호). 처리 상태·검수는 바꾸지 않고 이력(history)에 남는다"""
+    load(db, obs_id)
+    content = body.content.strip()
+    if not content:
+        raise HTTPException(422, "메모 내용이 비어 있습니다")
+    db.add(ObservationNote(observation_id=obs_id, content=content, author=body.author))
     db.commit()
     return one(db, obs_id, request)

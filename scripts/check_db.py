@@ -18,7 +18,7 @@ from sqlalchemy.engine import make_url  # noqa: E402
 
 from app.config import get_settings  # noqa: E402
 
-TABLES = ["sites", "observations", "analyses", "reviews", "actions", "action_logs"]
+TABLES = ["sites", "observations", "analyses", "reviews", "actions", "action_logs", "observation_notes"]
 
 
 def main() -> None:

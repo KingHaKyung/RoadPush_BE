@@ -22,6 +22,7 @@ from ..config import get_settings
 from ..db import SessionLocal, init_db
 from ..db.models import Analysis, Observation, now
 from .analysis import run_analysis
+from .geocode import fill_address
 from .storage import get_storage
 
 log = logging.getLogger("roadpush.worker")
@@ -51,6 +52,7 @@ def process(ana_id: str) -> None:
         obs = db.scalar(
             select(Observation).where(Observation.id == ana.observation_id).options(selectinload(Observation.site))
         )
+        fill_address(obs)  # 행정구역·주소가 비어 있으면 채운다 (실패해도 분석은 진행)
         try:
             run_analysis(get_storage(), ana, obs)
             ana.status, ana.error, ana.error_kind = "completed", None, None

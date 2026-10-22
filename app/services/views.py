@@ -38,11 +38,13 @@ def obs_query():
     return select(Observation).options(
         selectinload(Observation.site),
         selectinload(Observation.analyses).selectinload(Analysis.reviews),
+        selectinload(Observation.notes),
     )
 
 
 def latest_analysis(obs: Observation) -> Analysis | None:
-    return obs.analyses[-1] if obs.analyses else None
+    """취소한 재분석은 건너뛴다 → 취소하면 이전 분석 결과로 돌아간다"""
+    return next((a for a in reversed(obs.analyses) if a.status != "cancelled"), None)
 
 
 def latest_completed(obs: Observation) -> Analysis | None:
@@ -64,8 +66,10 @@ def actions_by_before(db: Session, obs_ids: list[str]) -> dict[str, Action]:
 def observation_out(obs: Observation, url: FileUrl, action: Action | None = None) -> ObservationOut:
     ana = latest_analysis(obs)
     done = ana is not None and ana.status == "completed"
-    # 검수는 해당 분석에 붙은 것만. 재분석하면 새 분석은 미검수에서 시작한다
+    # 검수는 해당 분석에 붙은 것만. 재분석하면 새 분석은 미검수에서 시작한다. 최신 행이 취소면 미검수
     rev = ana.reviews[-1] if ana and ana.reviews else None
+    if rev is not None and rev.status == "cancelled":
+        rev = None
     files = ana.files if done else {}
 
     hist: list[HistoryItem] = []
@@ -79,13 +83,18 @@ def observation_out(obs: Observation, url: FileUrl, action: Action | None = None
             hist.append(HistoryItem(t=t, txt=txt, ai=True))
         elif a.status == "failed":
             hist.append(HistoryItem(t=t, txt=f"{kind} 실패", ai=True))
+        elif a.status == "cancelled":
+            hist.append(HistoryItem(t=t, txt="재분석 요청 취소"))
         for r in a.reviews:
-            txt = (
-                "AI 판정 확인"
-                if r.status == "confirmed"
-                else f"판정 수정 → {PASS_LABEL.get(r.human_passability or '')}"
-            )
+            if r.status == "confirmed":
+                txt = "AI 판정 확인"
+            elif r.status == "corrected":
+                txt = f"판정 수정 → {PASS_LABEL.get(r.human_passability or '')}"
+            else:
+                txt = "검수 취소"
             hist.append(HistoryItem(t=r.created_at, txt=txt + (f" · {r.comment}" if r.comment else ""), by=r.reviewer))
+    for n in obs.notes:
+        hist.append(HistoryItem(t=n.created_at, txt=f"메모: {n.content}", by=n.author))
     if action:
         for lg in action.logs:
             txt = f"처리 상태: {ACTION_LABEL[lg.state]}" + (f" ({lg.dept})" if lg.dept else "")
@@ -94,7 +103,10 @@ def observation_out(obs: Observation, url: FileUrl, action: Action | None = None
         h.t = local(h.t)
     hist.sort(key=lambda h: h.t)
 
-    loc = Location(latitude=obs.lat, longitude=obs.lng) if obs.lat is not None and obs.lng is not None else None
+    # location은 구간 대표 위치: 프론트가 좌표로 지점을 묶으므로(pinKey) 같은 구간 관측은 같은 좌표로 준다.
+    # 사진의 실제 촬영 좌표는 capture_location
+    cap = Location(latitude=obs.lat, longitude=obs.lng) if obs.lat is not None and obs.lng is not None else None
+    loc = Location(latitude=obs.site.lat, longitude=obs.site.lng)
     risk = (ana.evidence or {}).get("risk", {}) if done else {}
     return ObservationOut(
         observation_id=obs.id,
@@ -117,6 +129,7 @@ def observation_out(obs: Observation, url: FileUrl, action: Action | None = None
         link_id=obs.site.link_id,
         source=obs.source,
         device=obs.device,
+        capture_location=cap,
         location_source=obs.location_source,
         area=obs.area,
         addr=obs.addr,

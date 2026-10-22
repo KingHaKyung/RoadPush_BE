@@ -93,6 +93,7 @@ flowchart LR
 erDiagram
     sites ||--o{ observations : "구간의 관측"
     observations ||--o{ analyses : "재분석마다 새 행"
+    observations ||--o{ observation_notes : "메모"
     analyses ||--o{ reviews : "분석 단위 검수"
     sites ||--o{ actions : "구간 단위 조치"
     observations ||--o{ actions : "조치 전 관측"
@@ -122,7 +123,7 @@ erDiagram
         string id PK "ana_xxxxxxxxxxxx"
         string observation_id FK
         string trigger "initial / reanalysis"
-        string status "pending / processing / completed / failed"
+        string status "pending / processing / completed / failed / cancelled"
         string passability "passable / narrowed / blocked / undetermined"
         int risk_score "0~100, 산출 불가면 NULL"
         float bottleneck_ratio "상대 유효폭"
@@ -132,7 +133,7 @@ erDiagram
     reviews {
         string id PK
         string analysis_id FK
-        string status "confirmed / corrected"
+        string status "confirmed / corrected / cancelled"
         string human_passability "사람 판정"
         text comment "의견·수정 이유"
     }
@@ -150,6 +151,12 @@ erDiagram
         string state
         text note
         string actor
+    }
+    observation_notes {
+        string id PK
+        string observation_id FK
+        text content
+        string author
     }
 ```
 
@@ -193,7 +200,7 @@ erDiagram
 | observation_id | FK → observations | | |
 | trigger | varchar(16) | | `initial` · `reanalysis` (CHECK) |
 | reanalysis_note | text | ✓ | 재분석 때 무엇을 보완했는지 |
-| status | varchar(16) | | `pending` · `processing` · `completed` · `failed` (CHECK, 4.4) |
+| status | varchar(16) | | `pending` · `processing` · `completed` · `failed` (CHECK, 4.4) · `cancelled`(시작 전 취소한 재분석, 최신 분석 선택에서 제외) |
 | attempts | int | | 자동 재시도 포함 실행 횟수 |
 | error, error_kind | text, varchar | ✓ | `input`(재시도 안 함) · `runtime` · `exhausted` |
 | model_version, rule_version | varchar | ✓ | 같은 기준끼리만 전후 지표 비교 |
@@ -214,7 +221,7 @@ erDiagram
 |---|---|---|---|
 | id | varchar(32) PK | | |
 | analysis_id | FK → analyses | | |
-| status | varchar(16) | | `confirmed` · `corrected` (CHECK) |
+| status | varchar(16) | | `confirmed` · `corrected` · `cancelled`(검수 취소, 최신 행이면 미검수) (CHECK) |
 | human_passability | varchar(16) | ✓ | 수정한 사람 판정 (CHECK) |
 | comment | text | ✓ | 확인 의견 또는 수정 이유 |
 | reviewer | varchar(64) | ✓ | |
@@ -238,6 +245,15 @@ erDiagram
 | id | varchar(32) PK | | |
 | action_id | FK → actions | | |
 | state, dept, note, actor | | ✓ | 바뀐 상태·부서·메모·담당자 |
+| created_at | timestamptz | | |
+
+### observation_notes — 관측 메모 (처리 상태·검수와 별개)
+| 열 | 형식 | NULL | 설명 |
+|---|---|---|---|
+| id | varchar(32) PK | | `note_` + 12자리 |
+| observation_id | FK → observations | | |
+| content | text | | 메모 내용 |
+| author | varchar(64) | ✓ | |
 | created_at | timestamptz | | |
 
 ### 미포함 항목 (필요할 때 마이그레이션으로 추가)

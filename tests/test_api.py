@@ -99,6 +99,57 @@ def test_review_is_per_analysis_and_not_inherited():
         assert [h["trigger"] for h in hist] == ["initial", "reanalysis"]
 
 
+def test_review_cancel_returns_to_pending():
+    with TestClient(app) as c:
+        s = _site(c, "검수 취소 구간")
+        oid = _post(c, seed=5, site_id=s["id"]).json()["observation_id"]
+        drain()
+        assert c.post(f"{API}/observations/{oid}/reviews/cancel").status_code == 409  # 검수 전
+        c.post(f"{API}/observations/{oid}/reviews", json={"status": "corrected", "human_passability": "passable"})
+        body = {"comment": "오판", "reviewer": "교통행정과"}
+        o = c.post(f"{API}/observations/{oid}/reviews/cancel", json=body).json()
+        assert o["review_status"] == "pending" and o["human_passability"] is None and o["review"] is None
+        assert any(h["txt"] == "검수 취소 · 오판" for h in o["history"])
+        assert c.post(f"{API}/observations/{oid}/reviews/cancel").status_code == 409  # 이미 취소
+        again = c.post(f"{API}/observations/{oid}/reviews", json={"status": "confirmed"}).json()
+        assert again["review_status"] == "confirmed"
+
+
+def test_reanalyze_cancel_keeps_previous_result():
+    with TestClient(app) as c:
+        s = _site(c, "재분석 취소 구간")
+        oid = _post(c, seed=6, site_id=s["id"]).json()["observation_id"]
+        assert c.post(f"{API}/observations/{oid}/reanalyze/cancel").status_code == 409  # 처음 분석은 취소 안 함
+        drain()
+        c.post(f"{API}/observations/{oid}/reviews", json={"status": "confirmed"})
+        before = c.get(f"{API}/observations/{oid}").json()
+        c.post(f"{API}/observations/{oid}/reanalyze", json={})
+        o = c.post(f"{API}/observations/{oid}/reanalyze/cancel").json()
+        assert o["processing_status"] == "completed" and o["analysis_id"] == before["analysis_id"]
+        assert o["review_status"] == "confirmed" and o["passability"] == before["passability"]
+        assert any(h["txt"] == "재분석 요청 취소" for h in o["history"])
+        drain()  # 취소한 분석은 워커가 가져가지 않는다
+        assert c.get(f"{API}/observations/{oid}").json()["analysis_id"] == before["analysis_id"]
+        statuses = [a["status"] for a in c.get(f"{API}/observations/{oid}/analyses").json()]
+        assert statuses == ["completed", "cancelled"]
+        # 취소 뒤 다시 요청할 수 있다
+        assert c.post(f"{API}/observations/{oid}/reanalyze", json={}).json()["processing_status"] == "pending"
+
+
+def test_note_goes_to_history_without_changing_state():
+    with TestClient(app) as c:
+        s = _site(c, "메모 구간")
+        oid = _post(c, seed=7, site_id=s["id"]).json()["observation_id"]
+        drain()
+        r = c.post(f"{API}/observations/{oid}/notes", json={"content": " 접수번호 1234 ", "author": "교통행정과"})
+        assert r.status_code == 201
+        o = r.json()
+        assert o["action"]["state"] == "none" and o["review_status"] == "pending"
+        assert any(h["txt"] == "메모: 접수번호 1234" and h["by"] == "교통행정과" for h in o["history"])
+        assert c.post(f"{API}/observations/{oid}/notes", json={"content": "   "}).status_code == 422
+        assert c.post(f"{API}/observations/obs_none/notes", json={"content": "x"}).status_code == 404
+
+
 def test_action_and_before_after_compare():
     with TestClient(app) as c:
         s = _site(c, "전후 비교 구간")
@@ -199,3 +250,58 @@ def test_root_redirects_to_docs():
         r = c.get("/", follow_redirects=False)
         assert r.status_code == 307 and r.headers["location"] == "/docs"
         assert c.get("/docs").status_code == 200
+
+
+def test_location_is_site_point_so_frontend_groups_by_site():
+    with TestClient(app) as c:
+        s = _site(c, "지점 묶음 구간")
+        a = _post(c, seed=8, site_id=s["id"], lat=LAT + 0.00003, lng=LNG - 0.00002).json()
+        b = _post(c, seed=9, site_id=s["id"], lat=LAT - 0.00004, lng=LNG + 0.00001).json()
+        assert a["location"] == b["location"] == {"latitude": s["lat"], "longitude": s["lng"]}
+        assert a["capture_location"] == {"latitude": LAT + 0.00003, "longitude": LNG - 0.00002}
+        nogps = _post(c, seed=10, site_id=s["id"], lat=None, lng=None).json()
+        assert nogps["location"] == a["location"] and nogps["capture_location"] is None
+
+
+VWORLD_OK = {
+    "response": {
+        "status": "OK",
+        "result": [
+            {
+                "text": "경기도 성남시 분당구 이매동 129-1",
+                "structure": {"level2": "성남시 분당구", "level4L": "이매동", "level4A": "이매1동"},
+            }
+        ],
+    }
+}
+
+
+def test_worker_fills_area_and_addr(monkeypatch):
+    from app.config import get_settings
+    from app.services import geocode
+
+    monkeypatch.setattr(get_settings(), "vworld_key", "test-key")
+    calls = []
+    monkeypatch.setattr(geocode, "_fetch", lambda lat, lng: calls.append((lat, lng)) or VWORLD_OK)
+    geocode.reverse.cache_clear()
+    with TestClient(app) as c:
+        s = _site(c, "역지오코딩 구간")
+        oid = _post(c, seed=11, site_id=s["id"]).json()["observation_id"]
+        kept = _post(c, seed=12, site_id=s["id"], area="직접 입력", addr="직접 주소").json()["observation_id"]
+        drain()
+        o = c.get(f"{API}/observations/{oid}").json()
+        assert o["area"] == "분당구 이매동"
+        assert o["addr"] == "경기도 성남시 분당구 이매동 129-1 (행정동 이매1동)"
+        k = c.get(f"{API}/observations/{kept}").json()
+        assert (k["area"], k["addr"]) == ("직접 입력", "직접 주소")  # 등록 때 넣은 값은 그대로
+        assert calls.count((LAT, LNG)) == 1  # 같은 좌표는 한 번만 조회 (다른 테스트의 대기 관측도 함께 처리됨)
+
+    # 조회 실패해도 분석은 완료된다
+    monkeypatch.setattr(geocode, "_fetch", lambda lat, lng: {"response": {"status": "ERROR"}})
+    geocode.reverse.cache_clear()
+    with TestClient(app) as c:
+        s = _site(c, "역지오코딩 실패 구간")
+        oid = _post(c, seed=13, site_id=s["id"], lat=LAT + 0.001, lng=LNG).json()["observation_id"]
+        drain()
+        o = c.get(f"{API}/observations/{oid}").json()
+        assert o["processing_status"] == "completed" and o["area"] is None

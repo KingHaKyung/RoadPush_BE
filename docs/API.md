@@ -19,7 +19,10 @@
 | F4 | `GET /observations/{id}` | 상세 |
 | F2 | `GET /observations/{id}/analyses` | 분석 이력 (자동 재시도 횟수, 사용자 재분석 구분, 근거 JSON) |
 | F7·F2 | `POST /observations/{id}/reanalyze` | 새 재분석 요청 → 새 analysis (기존 결과·검수 보존) |
+| F7·F2 | `POST /observations/{id}/reanalyze/cancel` | 시작 전(`pending`) 재분석 요청 취소 → 이전 분석 결과·검수로 돌아감 |
 | F5 | `POST /observations/{id}/reviews` | 확인(의견) / 수정(사람 판정 + 이유). 분석 단위로 저장 |
+| F5 | `POST /observations/{id}/reviews/cancel` | 확인·수정 취소 → 미검수 (이력은 남김) |
+| | `POST /observations/{id}/notes` | 메모. 처리 상태·검수는 바꾸지 않고 `history`에 남음 |
 | F5 | `POST /observations/{id}/action` | 처리 상태 변경 (이 관측을 '조치 전'으로 하는 조치를 만들거나 갱신) |
 | F5 | `POST /observations/bulk-action` | 여러 관측 일괄 처리 |
 | F5 | `POST /actions` · `PATCH /actions/{id}` | 조치 생성·갱신, **조치 후 관측 연결**(`after_observation_id`) |
@@ -89,7 +92,8 @@ sequenceDiagram
 | `site_id` | △ | 후보에서 확인한 기존 구간 |
 | `new_site_name`, `new_site_description` | △ | 일치하는 후보가 없을 때 신규 구간 |
 | `source` | | `upload`(기본) · `cctv` · `car` · `drone` |
-| `device`, `area`, `addr` | | |
+| `device` | | |
+| `area`, `addr` | | 비우면 분석 워커가 브이월드 역지오코딩으로 채움 (`VWORLD_KEY` 필요). area = `분당구 이매동`(시군구 + 법정동), addr = 지번 주소 + `(행정동 …)` |
 | `mask` | | 개발용: 미리 만든 통합 라벨 PNG(값 0~7) |
 
 오류: 형식 아님 415 · 손상 이미지·시간대 없음·구간 미확인 422 (관측을 만들지 않음).
@@ -102,7 +106,7 @@ sequenceDiagram
   "observation_id": "obs_8500215a8e0a",
   "analysis_id": "ana_5efdfba9f5a7",
   "site_id": "site_1f0c2b7d9a11",
-  "location": { "latitude": 37.3868, "longitude": 127.1273 },   // 좌표 없으면 null
+  "location": { "latitude": 37.3868, "longitude": 127.1273 },   // 구간 대표 위치 (같은 구간 관측은 같은 좌표 → 프론트가 한 지점으로 묶음)
   "captured_at": "2026-10-20T14:30:00+09:00",
   "processing_status": "completed",          // pending | processing | completed | failed
   "passability": "narrowed",                 // passable | narrowed | blocked | undetermined, 처리중·실패면 null
@@ -117,7 +121,10 @@ sequenceDiagram
   "human_passability": null,                 // corrected일 때 사람 판정
   // ── 추가 ──
   "site_name": "서현로 18길", "link_id": "2060113500",
-  "source": "upload", "device": null, "location_source": "exif", "area": null, "addr": null,
+  "source": "upload", "device": null,
+  "capture_location": { "latitude": 37.38683, "longitude": 127.12735 },  // 사진 촬영 좌표, 없으면 null
+  "location_source": "exif",                 // capture_location의 출처
+  "area": "분당구 이매동", "addr": "경기도 성남시 분당구 이매동 129-1 (행정동 이매1동)",  // 비어 있으면 자동 채움
   "occupancy": 45,                           // 가장 좁은 단면의 점유율(%)
   "bottleneck_ratio": 0.55,                  // 상대 유효폭 = 남은 연속 통로 / 추정 전체 보행폭
   "bottleneck_m_est": 1.32,                  // 구간 실측 보도폭이 있을 때만 (판정에는 안 씀)
@@ -162,8 +169,17 @@ sequenceDiagram
 { "status": "confirmed", "comment": "현장 사진과 일치", "reviewer": "교통행정과" }
 { "status": "corrected", "human_passability": "blocked", "comment": "차량 뒤쪽 보도까지 막힘", "reviewer": "교통행정과" }
 
+// POST /observations/{id}/reviews/cancel   (body 생략 가능. 검수가 없거나 이미 취소면 409)
+{ "comment": "판정 실수", "reviewer": "교통행정과" }
+
 // POST /observations/{id}/reanalyze
 { "note": "밝기 보정한 사진으로 다시" }
+
+// POST /observations/{id}/reanalyze/cancel   (body 없음)
+// 재분석이 pending일 때만. 처음 분석·이미 시작한 분석(processing)·대기 중 재분석이 없으면 409
+
+// POST /observations/{id}/notes   → 201
+{ "content": "운영사 수거 요청 접수번호 1234", "author": "교통행정과" }
 
 // POST /observations/{id}/action    state: none | inspection_requested | in_progress | done
 { "state": "inspection_requested", "dept": "주차관리과", "content": "차량 이동 요청", "actor": "교통행정과" }
@@ -194,7 +210,8 @@ sequenceDiagram
 | `id` | `observation_id` | |
 | `src` | `source` | `upload`는 프론트 `Source`에 없음 → 타입 추가 필요 |
 | `dev` | `device` | |
-| `lat`, `lng` | `location?.latitude/longitude` | null이면 구간 위치 사용 또는 지도 표시 보류 |
+| `lat`, `lng` | `location.latitude/longitude` | 구간 대표 위치. 사진 좌표는 `capture_location` |
+| `area`, `addr` | `area`, `addr` | 비어 있으면 백엔드가 역지오코딩으로 채움 (프론트 `npm run geocode`와 같은 형식) |
 | `t` | `captured_at` | |
 | `pass` | `passability` | `undetermined` ↔ `hold`, 처리 전·실패는 null → 별도 표시 |
 | `risk` | `risk_score` | "상대 위험도"로 표시 권장 (`risk_complete=false`) |

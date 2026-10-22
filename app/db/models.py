@@ -5,6 +5,7 @@ DB 테이블 (마스터 문서 5장 관계 구조).
  ├─ 관측(observation) A ─ 원본 사진
  │    └─ 분석(analysis) A1, A2 … ─ mask·overlay      재분석은 새 행, 이전 결과 보존
  │         └─ 관리자 확인(review)                       분석에 붙음 → 새 분석에 자동 승계되지 않음
+ │    └─ 메모(note)                                      처리 상태와 별개로 남기는 기록
  ├─ 조치(action) ─ 전 관측 A / 후 관측 B 연결
  └─ 관측(observation) B ─ 조치 후 사진
 
@@ -81,15 +82,18 @@ class Observation(Base):
 
     site: Mapped[Site] = relationship()
     analyses: Mapped[list["Analysis"]] = relationship(back_populates="observation", order_by="Analysis.created_at")
+    notes: Mapped[list["ObservationNote"]] = relationship(order_by="ObservationNote.created_at")
 
 
 class Analysis(Base):
-    """AI 분석 1회. status=queued 행이 작업 큐다 (별도 브로커 없이 DB 폴링)"""
+    """AI 분석 1회. status=pending 행이 작업 큐다 (별도 브로커 없이 DB 폴링). cancelled는 시작 전에 취소한 재분석"""
 
     __tablename__ = "analyses"
     __table_args__ = (
         CheckConstraint("trigger IN ('initial', 'reanalysis')", name="ck_analyses_trigger"),
-        CheckConstraint("status IN ('pending', 'processing', 'completed', 'failed')", name="ck_analyses_status"),
+        CheckConstraint(
+            "status IN ('pending', 'processing', 'completed', 'failed', 'cancelled')", name="ck_analyses_status"
+        ),
         CheckConstraint(f"passability IS NULL OR passability IN ({PASS_CODES})", name="ck_analyses_passability"),
         CheckConstraint("risk_score IS NULL OR risk_score BETWEEN 0 AND 100", name="ck_analyses_risk_score"),
     )
@@ -101,7 +105,7 @@ class Analysis(Base):
     reanalysis_note: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(
         String(16), default="pending", index=True
-    )  # pending|processing|completed|failed
+    )  # pending|processing|completed|failed|cancelled
     attempts: Mapped[int] = mapped_column(Integer, default=0)  # 자동 재시도 포함 실행 횟수
     error: Mapped[str | None] = mapped_column(Text)
     error_kind: Mapped[str | None] = mapped_column(String(16))  # input(재시도 안 함) | runtime | exhausted
@@ -129,11 +133,14 @@ class Analysis(Base):
 
 
 class Review(Base):
-    """관리자 확인·수정. 특정 분석에 붙고, AI 결과를 덮어쓰지 않는다 (이력 누적, 최신 행이 현재 상태)"""
+    """
+    관리자 확인·수정. 특정 분석에 붙고, AI 결과를 덮어쓰지 않는다 (이력 누적, 최신 행이 현재 상태).
+    취소는 행을 지우지 않고 cancelled 행을 덧붙인다 → 최신 행이 cancelled면 미검수
+    """
 
     __tablename__ = "reviews"
     __table_args__ = (
-        CheckConstraint("status IN ('confirmed', 'corrected')", name="ck_reviews_status"),
+        CheckConstraint("status IN ('confirmed', 'corrected', 'cancelled')", name="ck_reviews_status"),
         CheckConstraint(
             f"human_passability IS NULL OR human_passability IN ({PASS_CODES})", name="ck_reviews_human_passability"
         ),
@@ -141,7 +148,7 @@ class Review(Base):
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id("rev"))
     analysis_id: Mapped[str] = mapped_column(ForeignKey("analyses.id"), index=True)
-    status: Mapped[str] = mapped_column(String(16))  # confirmed | corrected
+    status: Mapped[str] = mapped_column(String(16))  # confirmed | corrected | cancelled
     human_passability: Mapped[str | None] = mapped_column(String(16))
     comment: Mapped[str | None] = mapped_column(Text)  # 확인 의견 또는 수정 이유
     reviewer: Mapped[str | None] = mapped_column(String(64))
@@ -180,4 +187,16 @@ class ActionLog(Base):
     dept: Mapped[str | None] = mapped_column(String(64))
     note: Mapped[str | None] = mapped_column(Text)
     actor: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class ObservationNote(Base):
+    """관측 메모 (예: 운영사 수거 요청 접수번호). 처리 상태·검수와 별개로 이력에만 남는다"""
+
+    __tablename__ = "observation_notes"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id("note"))
+    observation_id: Mapped[str] = mapped_column(ForeignKey("observations.id"), index=True)
+    content: Mapped[str] = mapped_column(Text)
+    author: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

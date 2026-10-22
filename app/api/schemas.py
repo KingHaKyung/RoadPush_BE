@@ -76,7 +76,8 @@ class ObservationOut(BaseModel):
     link_id: str | None = None
     source: str
     device: str | None = None
-    location_source: str | None = None
+    capture_location: Location | None = Field(None, description="사진 촬영 좌표 (location은 구간 대표 위치)")
+    location_source: str | None = Field(None, description="capture_location의 출처: exif | manual | device")
     area: str | None = None
     addr: str | None = None
     occupancy: int | None = Field(None, description="병목 단면 점유율(%)")
@@ -151,6 +152,17 @@ class ReviewIn(BaseModel):
     comment: str | None = Field(None, description="확인 의견 또는 수정 이유")
     reviewer: str | None = None
     analysis_id: str | None = Field(None, description="비우면 최신 완료 분석")
+
+
+class ReviewCancelIn(BaseModel):
+    comment: str | None = Field(None, description="취소 이유")
+    reviewer: str | None = None
+    analysis_id: str | None = Field(None, description="비우면 최신 완료 분석")
+
+
+class NoteIn(BaseModel):
+    content: str = Field(..., min_length=1, description="메모 내용 (처리 상태는 바꾸지 않음)")
+    author: str | None = None
 
 
 class ReanalyzeIn(BaseModel):
