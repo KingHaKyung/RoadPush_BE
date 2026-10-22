@@ -5,12 +5,72 @@
 
 | # | 날짜 | 환경 | 증상 | 상태 |
 |---|---|---|---|---|
+| [T7](#t7-프론트-npm-install이-안-됨) | 10/22 | Windows | 프론트 `npm install`이 안 됨 | 원인별 해결 |
 | [T6](#t6-서버-주소로-접속하면-detailnot-found) | 10/21 | 전체 | `http://127.0.0.1:8000` 접속 시 `{"detail":"Not Found"}` | 해결 |
 | [T5](#t5-uvicorn-실행-시-unicodedecodeerror-cp949) | 10/21 | Windows (한국어) | `uvicorn` 실행 시 `UnicodeDecodeError: 'cp949' codec …` | 해결 |
 | [T4](#t4-env-한글-주석을-cp949로-읽는-문제) | 10/21 | Windows (한국어) | `.env` 한글 주석을 cp949로 읽어 값이 깨질 수 있음 | 예방 조치 |
 | [T3](#t3-한글이-들어간-폴더에서-이미지를-못-읽는-문제) | 10/21 | Windows | 폴더 경로에 한글이 있으면 OpenCV가 사진을 못 읽음 | 예방 조치 |
 | [T2](#t2-촬영시각이-9시간-어긋남) | 10/21 | SQLite | 촬영시각 `+09:00`이 사라져 9시간 어긋남 | 해결 |
 | [T1](#t1-보도-폭-전체가-막힌-구간이-통과로-나옴) | 10/21 | 판정 규칙 | 폭 전체가 막힌 구간이 분석에서 빠져 "통과"로 나옴 | 해결 |
+
+---
+
+## T7. 프론트 `npm install`이 안 됨
+
+**증상** 백엔드 폴더에서 `cd RoadPush_FE` → `npm install` 순서로 실행했는데 설치되지 않음.
+
+**확인한 것** 프론트 저장소(`main`, 21b5ed1)를 Node 22 / npm 10에서 새로 받아 `npm install`하면 74개 패키지가 5초 만에 설치되고
+`npm run build`도 통과합니다. **프론트 코드 문제가 아니라 PC 환경·실행 위치 문제**입니다.
+
+**원인 찾기** 오류 메시지의 첫 줄로 아래 표에서 찾습니다.
+
+```mermaid
+flowchart TD
+    A["npm install 실패"] --> B{"node --version 이 나오는가"}
+    B -- "'node'/'npm'은(는) 내부 또는 외부 명령…이 아닙니다" --> C["① Node.js 미설치"]
+    B -- "v16 이하" --> D["② Node.js 버전 낮음"]
+    B -- "v18 이상" --> E{"현재 폴더에 package.json이 있는가<br/>dir package.json"}
+    E -- 없음 --> F["③ 프론트를 안 받았거나 다른 폴더에서 실행"]
+    E -- 있음 --> G{"오류 메시지"}
+    G -- "npm.ps1 … 스크립트를 실행할 수 없으므로" --> H["④ PowerShell 실행 정책"]
+    G -- "ETIMEDOUT · ECONNRESET · CERT" --> I["⑤ 네트워크·인증서"]
+    G -- "EPERM · EBUSY · operation not permitted" --> J["⑥ 파일 잠김 (OneDrive·백신·실행 중인 dev 서버)"]
+```
+
+| # | 오류 메시지 (첫 줄) | 원인 | 해결 |
+|---|---|---|---|
+| ① | `'npm'은(는) 내부 또는 외부 명령, 실행할 수 있는 프로그램, 또는 배치 파일이 아닙니다` / `npm : 'npm' 용어가 cmdlet … 인식되지 않습니다` | Node.js가 없음 | https://nodejs.org 에서 **LTS** 설치 → **터미널을 닫았다 다시 열기** → `node --version` |
+| ② | `Unsupported engine` / Vite 실행 시 문법 오류 | Node 16 이하 (Vite 5는 18 이상 필요) | Node LTS 재설치 |
+| ③ | `cd : 'RoadPush_FE' 경로를 찾을 수 없습니다` 또는 `npm error enoent … package.json` | 프론트 저장소를 받지 않았거나, 백엔드 폴더 안에서 `cd RoadPush_FE`를 실행 | 백엔드와 **나란히 있는 폴더**에 받기 (아래 "올바른 폴더 배치") |
+| ④ | `npm.ps1 파일을 로드할 수 없습니다 … 이 시스템에서 스크립트를 실행할 수 없으므로` | PowerShell 실행 정책 | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` 한 번 실행, 또는 `npm.cmd install` |
+| ⑤ | `ETIMEDOUT`, `ECONNRESET`, `UNABLE_TO_GET_ISSUER_CERT_LOCALLY`, `SELF_SIGNED_CERT_IN_CHAIN` | 학교·회사 네트워크의 방화벽·보안 프록시 | 휴대폰 핫스팟 등 다른 네트워크에서 다시 실행. 인증서 검사를 끄는 설정(`strict-ssl false`)은 쓰지 않음 |
+| ⑥ | `EPERM`, `EBUSY`, `operation not permitted` | OneDrive 동기화 폴더·백신·켜져 있는 `npm run dev`가 파일을 잡고 있음 | dev 서버 끄기 → `node_modules` 폴더 삭제 → 다시 `npm install`. OneDrive 폴더(문서·바탕 화면) 밖으로 옮기기 |
+
+**실패가 아닌 것** 설치 끝에 아래가 나오면 **설치는 성공**입니다.
+```
+added 74 packages, and audited 75 packages in 5s
+2 vulnerabilities (1 moderate, 1 high)
+To address all issues, run: npm audit fix --force
+```
+개발 서버용 esbuild 관련 경고입니다. **`npm audit fix --force`는 실행하지 않습니다** — 프론트가 고정한 Vite 버전 범위를 벗어난 버전을 설치해
+다른 팀원과 환경이 달라집니다. 경고 처리는 프론트 담당이 저장소에서 버전을 올려 해결합니다.
+
+**올바른 폴더 배치** 두 저장소를 같은 상위 폴더에 나란히 둡니다.
+```
+C:\dev\
+├─ RoadPush_BE\      ← 백엔드 (uvicorn 실행)
+└─ RoadPush_FE\      ← 프론트 (npm install · npm run dev)
+```
+```powershell
+cd C:\dev                                   # 백엔드를 받은 상위 폴더
+git clone https://github.com/KingHaKyung/RoadPush_FE.git
+cd RoadPush_FE
+npm install
+```
+백엔드 폴더 **안에** 프론트를 받으면 백엔드 저장소에 프론트 폴더가 섞여 커밋될 수 있으니 피합니다.
+이미 그렇게 받았다면 `RoadPush_FE` 폴더를 상위 폴더로 옮깁니다.
+
+**재발 방지** [SETUP.md 7장](SETUP.md#7-프론트-연결-선택)에 폴더 배치·Node 버전 확인·성공 메시지 기준 추가.
 
 ---
 

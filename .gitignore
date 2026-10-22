@@ -16,3 +16,7 @@ outputs/
 work/
 data/*
 !data/roadpush_seongnam_nodelink.geojson
+
+# 백엔드 폴더 안에 프론트를 받은 경우 커밋되지 않게 (docs/TROUBLESHOOTING.md T7)
+RoadPush_FE/
+node_modules/
