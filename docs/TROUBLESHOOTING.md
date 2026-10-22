@@ -5,7 +5,6 @@
 
 | # | 날짜 | 환경 | 증상 | 상태 |
 |---|---|---|---|---|
-| [T8](#t8-명령-프롬프트에서는-node가-되는데-vs-code-터미널에서는-안-됨) | 10/22 | Windows · VS Code | cmd에서는 `node`가 되는데 VS Code 터미널에서는 찾을 수 없음, `npm install` 실패 | 해결 방법 안내 |
 | [T7](#t7-프론트-npm-install-실패-예방) | 10/22 | Windows | 프론트 `npm install` 실패 가능성 (Node 버전·실행 위치 등) | 예방 조치 |
 | [T6](#t6-서버-주소로-접속하면-detailnot-found) | 10/21 | 전체 | `http://127.0.0.1:8000` 접속 시 `{"detail":"Not Found"}` | 해결 |
 | [T5](#t5-uvicorn-실행-시-unicodedecodeerror-cp949) | 10/21 | Windows (한국어) | `uvicorn` 실행 시 `UnicodeDecodeError: 'cp949' codec …` | 해결 |
@@ -13,82 +12,6 @@
 | [T3](#t3-한글이-들어간-폴더에서-이미지를-못-읽는-문제) | 10/21 | Windows | 폴더 경로에 한글이 있으면 OpenCV가 사진을 못 읽음 | 예방 조치 |
 | [T2](#t2-촬영시각이-9시간-어긋남) | 10/21 | SQLite | 촬영시각 `+09:00`이 사라져 9시간 어긋남 | 해결 |
 | [T1](#t1-보도-폭-전체가-막힌-구간이-통과로-나옴) | 10/21 | 판정 규칙 | 폭 전체가 막힌 구간이 분석에서 빠져 "통과"로 나옴 | 해결 |
-
----
-
-## T8. 명령 프롬프트에서는 node가 되는데 VS Code 터미널에서는 안 됨
-
-**증상** Windows 명령 프롬프트(cmd)에서는 `node --version`이 나오는데, VS Code 터미널에서는 아래처럼 찾을 수 없다고 나오고 `npm install`도 실패함.
-```
-node : 'node' 용어가 cmdlet, 함수, 스크립트 파일 또는 실행할 수 있는 프로그램 이름으로 인식되지 않습니다.
-```
-또는 `node`는 되는데 `npm`만 실패함.
-```
-npm : 이 시스템에서 스크립트를 실행할 수 없으므로 C:\Program Files\nodejs\npm.ps1 파일을 로드할 수 없습니다.
-```
-
-**원인** Node.js 자체는 정상 설치돼 있고, VS Code 터미널 환경만 다릅니다.
-
-| 원인 | 설명 |
-|---|---|
-| A. VS Code를 Node 설치 **전에** 켜 둠 (가장 흔함) | 터미널은 VS Code가 켜질 때의 PATH(프로그램 경로 목록)를 물려받습니다. Node 설치 후 VS Code 안에서 터미널만 새로 열면 예전 PATH 그대로라 `node`를 못 찾습니다 |
-| B. PowerShell 실행 정책 | VS Code 기본 터미널은 PowerShell이고, `npm`은 PowerShell에서 `npm.ps1` 스크립트로 실행됩니다. 스크립트 실행이 막혀 있으면 `npm`만 실패합니다. cmd는 `npm.cmd`를 써서 영향이 없습니다 |
-| C. 터미널 종류가 다름 | VS Code 터미널이 Git Bash·WSL 등으로 설정돼 있으면 Windows용 Node 경로를 못 볼 수 있습니다 |
-| D. nvm-windows로 설치 | 버전을 선택(`nvm use`)하지 않았거나 다른 창에서만 선택된 상태 |
-
-**원인 찾기**
-
-```mermaid
-flowchart TD
-    A["VS Code 터미널에서 node·npm 실패<br/>(cmd에서는 됨)"] --> B{"오류 메시지"}
-    B -- "'node' 용어가 … 인식되지 않습니다" --> C["A. VS Code를 완전히 종료 후 다시 실행"]
-    C --> D{"그래도 안 됨"}
-    D -- 예 --> E["C. 터미널 종류 확인<br/>D. nvm use 확인<br/>임시: PATH 직접 추가"]
-    B -- "npm.ps1 … 스크립트를 실행할 수 없으므로" --> F["B. 실행 정책 변경<br/>또는 npm.cmd 사용"]
-```
-
-**해결**
-
-1. **VS Code를 완전히 종료한 뒤 다시 실행** (원인 A)
-   - 열려 있는 VS Code 창을 **모두** 닫습니다. 창 하나만 닫거나 "Reload Window"로는 PATH가 바뀌지 않습니다.
-   - 작업 관리자(`Ctrl+Shift+Esc`)에 `Code.exe`(Visual Studio Code)가 남아 있으면 끝냅니다.
-   - 다시 열고 **새 터미널**에서 `node --version`을 확인합니다. 그래도 안 되면 PC를 재시작합니다.
-
-2. **`npm.ps1 … 로드할 수 없습니다`일 때** (원인 B) — 둘 중 하나
-   ```powershell
-   Set-ExecutionPolicy -Scope CurrentUser RemoteSigned    # 한 번만 실행 (Y 입력)
-   ```
-   또는 정책을 바꾸지 않고 `npm.cmd install`, `npm.cmd run dev`처럼 `.cmd`를 붙여 실행합니다.
-
-3. **터미널 종류 확인** (원인 C)
-   VS Code 터미널 오른쪽 위 `+` 옆 `∨` → **Select Default Profile** → `PowerShell` 또는 `Command Prompt` 선택 → 새 터미널.
-
-4. **nvm-windows를 쓰는 경우** (원인 D)
-   ```powershell
-   nvm list           # 설치된 버전
-   nvm use 22.11.0    # 목록에 있는 18 이상 버전 선택 (예시)
-   ```
-
-5. **임시 해결 — 지금 터미널에만 경로 추가**
-   cmd에서 Node 위치를 확인합니다.
-   ```
-   where node
-   ```
-   보통 `C:\Program Files\nodejs\node.exe`입니다. VS Code PowerShell에서 그 폴더를 PATH에 추가합니다.
-   ```powershell
-   $env:Path += ";C:\Program Files\nodejs"
-   node --version
-   ```
-   이 터미널을 닫으면 사라지므로, 1번(VS Code 재시작)으로 근본 해결합니다.
-
-**확인 명령** (VS Code PowerShell)
-```powershell
-Get-Command node, npm               # 실제로 실행되는 파일 경로
-$env:Path -split ';' | Select-String nodejs   # PATH에 Node 폴더가 있는지
-Get-ExecutionPolicy -List           # 실행 정책 (CurrentUser가 RemoteSigned면 정상)
-```
-
-**예방 조치** [SETUP.md 0장](SETUP.md#0-준비물)에 "Node 설치 후 VS Code 완전히 재시작" 안내 추가, [12장](SETUP.md#12-자주-나는-문제) 표에 증상 추가.
 
 ---
 
@@ -264,7 +187,7 @@ OS 기본 인코딩(cp949)으로 읽어 T5와 같은 오류가 나거나 값이 
 ## 새 항목 작성 양식
 
 ```markdown
-## T9. 한 줄 증상
+## T8. 한 줄 증상
 
 **증상** 무엇을 했을 때 무엇이 나왔는지 (오류 메시지 그대로)
 **원인** 왜 그랬는지

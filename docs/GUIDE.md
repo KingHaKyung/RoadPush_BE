@@ -119,7 +119,7 @@ docs/
 | 연결 확인 | dummy | 기본값. 모델 없이 API·프론트 확인 |
 
 DeepLab v3+와 YOLO 계열은 8GB에서 추론·미세조정 모두 무리 없습니다. 분석은 큐로 돌아 실시간이 필요 없습니다.
-실제 모델 경로(selectstar·hf·yolo)는 GPU·가중치 환경에서의 실행 검증이 남아 있습니다.
+실행 확인 (CPU): YOLO11n-seg·YOLOE(텍스트 카테고리) 공개 가중치, HF Mask2Former·SegFormer 구조, 서버 분석 큐까지 동작. 남은 확인: RTX 4060(CUDA)에서의 속도·메모리, SelectStar TorchScript 파일(모델 팀 전달 후).
 
 ## 5. 공모전 제출물과 백엔드가 맡을 일
 

@@ -7,7 +7,7 @@
 labels.csv (UTF-8) 열: file, label, sidewalk_width_m(선택)
     label: passable | narrowed | blocked | undetermined  (현장에서 사람이 판단한 값. AI에 맞춰 고치지 않는다)
 
-결과: <out>/results.csv, <out>/confusion.csv, <out>/overlays/*.jpg
+결과: <out>/results.csv, <out>/confusion.csv, <out>/overlays/<사진>_surface.jpg · <사진>_passage.jpg
 보정용 장소와 최종 평가 장소는 폴더를 나눠 따로 돌린다 (마스터 문서 11장).
 """
 
@@ -62,8 +62,10 @@ def main() -> None:
             print(f"[skip] {p.name}: {e}")
             continue
         r = out.result
+        # 노면 결과는 항상, 통로·점유 결과는 판정이 나온 경우만 (판단 유보면 없음)
+        imageio.imwrite(args.out / "overlays" / f"{p.stem}_surface.jpg", out.images["surface_overlay"])
         if "obstacle_overlay" in out.images:
-            imageio.imwrite(args.out / "overlays" / f"{p.stem}.jpg", out.images["obstacle_overlay"])
+            imageio.imwrite(args.out / "overlays" / f"{p.stem}_passage.jpg", out.images["obstacle_overlay"])
         gt = lab.get("label")
         if gt:
             conf[(gt, r.verdict)] += 1

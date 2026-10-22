@@ -20,3 +20,10 @@ data/*
 # 백엔드 폴더 안에 프론트를 받은 경우 커밋되지 않게 (docs/TROUBLESHOOTING.md T7)
 RoadPush_FE/
 node_modules/
+
+# 모델 가중치는 어느 위치에 내려받아도 커밋하지 않음
+*.pt
+*.pth
+*.onnx
+# YOLOE가 처음 실행될 때 작업 폴더에 내려받는 텍스트 인코더 (수백 MB)
+mobileclip*.ts
