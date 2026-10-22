@@ -140,8 +140,8 @@ VITE_API_BASE_URL=http://localhost:8000/api/v1
 ```bash
 npm run dev     # http://localhost:5173
 ```
-프론트 `main`은 아직 **예시 데이터 20건**으로 화면을 그립니다. 백엔드 데이터를 보려면 프론트에 연결 코드를 적용해야 하며,
-적용 방법과 전체 테스트 순서는 [FRONTEND_INTEGRATION.md](FRONTEND_INTEGRATION.md)에 있습니다.
+백엔드 연결 코드는 프론트 [PR #1](https://github.com/KingHaKyung/RoadPush_FE/pull/1)(`feat/api-connect`)에 있습니다. 합치기 전의 프론트 `main`은 `VITE_API_BASE_URL`과 관계없이 **예시 데이터 28건**으로 화면을 그립니다.
+전체 테스트 순서는 [FRONTEND_INTEGRATION.md](FRONTEND_INTEGRATION.md)에 있습니다.
 허용 출처는 `.env`의 `CORS_ORIGINS`입니다 (기본: `http://localhost:5173`, `https://road-push-fe.vercel.app`).
 
 ## 8. 실제 모델 실행 (GPU 환경)
