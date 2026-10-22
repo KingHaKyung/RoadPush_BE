@@ -112,11 +112,22 @@ dummy 모델은 사진 내용을 보지 않고 가짜 장면을 만듭니다. �
 
 ## 7. 프론트 연결 (선택)
 
-```bash
+프론트는 백엔드 폴더 **옆**(같은 상위 폴더)에 받습니다. 백엔드 폴더 안에서 `cd RoadPush_FE`를 하면 폴더가 없어 실패합니다.
+```
+C:\dev\
+├─ RoadPush_BE\      ← 백엔드
+└─ RoadPush_FE\      ← 프론트
+```
+1. Node.js 확인 — `node --version`이 **v18 이상**이어야 합니다. 없으면 https://nodejs.org 에서 LTS 설치 후 터미널을 새로 엽니다.
+2. 새 터미널(백엔드 서버 터미널과 별도)에서:
+```powershell
+cd C:\dev                    # RoadPush_BE가 있는 상위 폴더
 git clone https://github.com/KingHaKyung/RoadPush_FE.git
 cd RoadPush_FE
 npm install
 ```
+`added 74 packages …`가 나오면 성공입니다. 이어서 나오는 `2 vulnerabilities … npm audit fix --force`는 경고이며,
+**`npm audit fix --force`는 실행하지 않습니다**. 설치가 안 되면 [TROUBLESHOOTING.md T7](TROUBLESHOOTING.md#t7-프론트-npm-install이-안-됨).
 `RoadPush_FE/.env`:
 ```
 VITE_API_BASE_URL=http://localhost:8000/api/v1
@@ -124,7 +135,8 @@ VITE_API_BASE_URL=http://localhost:8000/api/v1
 ```bash
 npm run dev     # http://localhost:5173
 ```
-프론트가 예시 데이터 대신 API를 쓰려면 프론트 쪽 연결 코드가 필요합니다 (필드 매핑은 [API.md](API.md) 마지막 표).
+지금 프론트는 **예시 데이터 20건**으로 화면을 그립니다. `VITE_API_BASE_URL`을 넣어도 백엔드 데이터가 바로 보이지는 않고,
+프론트의 `src/lib/useObservations.ts`에서 API를 부르는 연결 코드가 들어가야 합니다 (필드 매핑은 [API.md](API.md) 마지막 표).
 허용 출처는 `.env`의 `CORS_ORIGINS`입니다 (기본: `http://localhost:5173`, `https://road-push-fe.vercel.app`).
 
 ## 8. 실제 모델 실행 (GPU 환경)
@@ -187,6 +199,8 @@ git push -u origin feat/짧은-설명              # GitHub에서 main으로 Pul
 
 | 증상 | 해결 |
 |---|---|
+| 프론트 `npm install` 실패 | 프론트를 백엔드 폴더 **옆**에 받았는지, `node --version`이 v18 이상인지 확인 ([T7](TROUBLESHOOTING.md#t7-프론트-npm-install이-안-됨)) |
+| `npm audit fix --force` 하라는 경고 | 설치는 성공. 실행하지 않음 |
 | `UnicodeDecodeError: 'cp949' codec …` (서버 시작 시) | `git pull`로 최신 코드 받기 ([T5](TROUBLESHOOTING.md#t5-uvicorn-실행-시-unicodedecodeerror-cp949)). 로컬에서 `alembic.ini`를 고쳤다면 `git checkout -- alembic.ini` 후 `git pull` |
 | `{"detail":"Not Found"}` | 주소 뒤에 `/docs` 또는 `/api/v1/health`를 붙여 접속. 최신 코드는 `/`에서 `/docs`로 자동 이동 ([T6](TROUBLESHOOTING.md#t6-서버-주소로-접속하면-detailnot-found)) |
 | 로그의 한글이 깨져 보임 | 표시 문제일 뿐 동작은 정상. Windows Terminal 사용 또는 실행 전 `chcp 65001` |
