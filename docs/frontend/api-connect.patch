@@ -1,0 +1,367 @@
+diff --git a/src/App.tsx b/src/App.tsx
+index 683a882..ee6e376 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -13,9 +13,9 @@ import type { Filters, Tab } from './types';
+ const readTab = (): Tab => (['map', 'list', 'hold'].includes(location.hash.slice(1)) ? (location.hash.slice(1) as Tab) : 'map');
+ 
+ export default function App() {
+-  const { observations, update } = useObservations();
++  const { observations, update, error } = useObservations();
+   const [tab, setTab] = useState<Tab>(readTab);
+-  const [filters, setFilters] = useState<Filters>({ period: '3d', src: new Set(['cctv', 'car']), pass: new Set(PASS_KEYS), act: new Set(ACTIONS), q: '', sort: 'time' });
++  const [filters, setFilters] = useState<Filters>({ period: '3d', src: new Set(['cctv', 'car', 'upload']), pass: new Set(PASS_KEYS), act: new Set(ACTIONS), q: '', sort: 'time' });
+   const [selSeg, setSelSeg] = useState<string | null>(null);
+   const [selObs, setSelObs] = useState<string | null>(null);
+   const [focusKey, setFocusKey] = useState(0);
+@@ -57,7 +57,7 @@ export default function App() {
+ 
+   return (
+     <>
+-      <Header tab={tab} holdCount={holdCount} />
++      <Header tab={tab} holdCount={holdCount} obs={observations} error={error} />
+       <main id="content" tabIndex={-1}>
+         {tab === 'map' && (
+           <MapView obs={observations} filters={filters} setFilters={setFilters} selSeg={selSeg} selObs={selObs} focusKey={focusKey}
+diff --git a/src/api/client.ts b/src/api/client.ts
+index 7fb6945..eebe8a4 100644
+--- a/src/api/client.ts
++++ b/src/api/client.ts
+@@ -1,28 +1,107 @@
+ /**
+- * 백엔드(RoadPush_Backend, FastAPI) 연결 지점.
+- * 응답 형식은 마스터 문서 4.4 '공통 분석 응답 형식'을 따른다.
++ * 백엔드(RoadPush_BE, FastAPI) 연결 지점.
++ * 응답 형식은 마스터 문서 4.4 '공통 분석 응답 형식'(+ 화면용 필드)을 따른다. 백엔드 docs/API.md 참고.
+  * VITE_API_BASE_URL이 비어 있으면 프론트는 예시 데이터를 쓴다.
+  */
++import type { Action, Condition, HistoryEntry, ObservationBase, Pass, Review, Source } from '../types';
++
++type ApiPass = 'passable' | 'narrowed' | 'blocked' | 'undetermined';
++
+ export interface AnalysisResponse {
+   observation_id: string;
+-  analysis_id: string;
++  analysis_id: string | null;
+   site_id: string;
+-  location: { latitude: number; longitude: number };
++  location: { latitude: number; longitude: number } | null;
+   captured_at: string;
+   processing_status: 'pending' | 'processing' | 'completed' | 'failed';
+-  passability: 'passable' | 'narrowed' | 'blocked' | 'undetermined' | null;
++  passability: ApiPass | null;
+   risk_score: number | null;
+   uncertainty_reason: string | null;
+-  images: { original: string; surface_overlay?: string; obstacle_overlay?: string };
++  images: { original: string; surface_overlay?: string | null; obstacle_overlay?: string | null };
+   review_status: 'pending' | 'confirmed' | 'corrected';
+-  human_passability: 'passable' | 'narrowed' | 'blocked' | null;
++  human_passability: ApiPass | null;
++  // 화면용 추가 필드
++  site_name: string;
++  link_id: string | null;
++  source: string;
++  device: string | null;
++  area: string | null;
++  addr: string | null;
++  occupancy: number | null;
++  causes: string[];
++  uncertainty_code: string | null;
++  failure_reason: string | null;
++  action: { action_id: string | null; state: string; label: string; dept: string | null };
++  history: { t: string; txt: string; ai: boolean; by: string | null }[];
+ }
+ 
+-export const API_BASE = import.meta.env.VITE_API_BASE_URL as string | undefined;
++export const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) || undefined;
+ 
+-export async function fetchObservations(): Promise<AnalysisResponse[]> {
+-  if (!API_BASE) throw new Error('VITE_API_BASE_URL이 설정되지 않았습니다');
+-  const res = await fetch(`${API_BASE}/observations`);
+-  if (!res.ok) throw new Error(`관측 목록을 불러오지 못했습니다 (${res.status})`);
++async function call<T>(path: string, init?: RequestInit): Promise<T> {
++  const res = await fetch(`${API_BASE}${path}`, {
++    ...init,
++    headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
++  });
++  if (!res.ok) throw new Error(`${path} 요청 실패 (${res.status})`);
+   return res.json();
+ }
++
++export const fetchObservations = () => call<AnalysisResponse[]>('/observations');
++
++/** 화면의 처리 상태 이름 → 백엔드 코드 */
++export const ACTION_CODE: Record<Action, string> = {
++  '미처리': 'none', '현장점검 요청': 'inspection_requested', '조치 중': 'in_progress', '조치 완료': 'done',
++};
++
++export const setActions = (ids: string[], action: Action, dept: string | null, note?: string) =>
++  call<AnalysisResponse[]>('/observations/bulk-action', {
++    method: 'POST',
++    body: JSON.stringify({ observation_ids: ids, state: ACTION_CODE[action], dept, content: note, actor: '교통행정과' }),
++  });
++
++export const review = (id: string, human: Pass | null) =>
++  call<AnalysisResponse>(`/observations/${id}/reviews`, {
++    method: 'POST',
++    body: JSON.stringify(human
++      ? { status: 'corrected', human_passability: human === 'hold' ? 'undetermined' : human, reviewer: '교통행정과' }
++      : { status: 'confirmed', reviewer: '교통행정과' }),
++  });
++
++export const reanalyze = (id: string) => call<AnalysisResponse>(`/observations/${id}/reanalyze`, { method: 'POST', body: '{}' });
++
++const toPass = (p: ApiPass | null): Pass => (p === null || p === 'undetermined' ? 'hold' : p);
++const COND: Condition[] = ['night', 'rain', 'occluded', 'mixed'];
++const REVIEW: Record<AnalysisResponse['review_status'], Review> = { pending: '미검수', confirmed: '확인', corrected: '수정' };
++
++/** 백엔드 응답 → 화면 관측 (구간·이름은 useObservations에서 붙인다) */
++export function toObservation(a: AnalysisResponse) {
++  const waiting = a.processing_status === 'pending' || a.processing_status === 'processing';
++  const base: ObservationBase = {
++    id: a.observation_id,
++    src: (['cctv', 'car', 'upload'].includes(a.source) ? a.source : 'upload') as Source,
++    dev: a.device ?? '',
++    lat: a.location?.latitude ?? NaN,
++    lng: a.location?.longitude ?? NaN,
++    area: a.area ?? undefined,
++    addr: a.addr ?? undefined,
++    t: a.captured_at,
++    pass: toPass(a.passability),
++    risk: a.risk_score,
++    occ: a.occupancy,
++    causes: a.causes,
++    reason: a.uncertainty_reason
++      ?? (waiting ? 'AI 분석 대기 중' : a.processing_status === 'failed' ? `분석 실패: ${a.failure_reason ?? ''}` : undefined),
++    cond: COND.includes(a.uncertainty_code as Condition) ? (a.uncertainty_code as Condition) : undefined,
++    action: a.action.label as Action,
++    dept: a.action.dept ?? '미배정',
++    img: { original: a.images.original, overlay: a.images.obstacle_overlay ?? a.images.surface_overlay ?? undefined },
++  };
++  return {
++    base,
++    linkId: a.link_id,
++    human: a.human_passability ? toPass(a.human_passability) : null,
++    review: REVIEW[a.review_status],
++    reanalyze: waiting,
++    hist: a.history.map((h): HistoryEntry => ({ t: h.t, txt: h.txt, ai: h.ai || undefined, by: h.by ?? undefined })),
++  };
++}
+diff --git a/src/components/FrameView.tsx b/src/components/FrameView.tsx
+index 57b3c41..55dbeca 100644
+--- a/src/components/FrameView.tsx
++++ b/src/components/FrameView.tsx
+@@ -4,6 +4,11 @@ import { fmtTime } from '../lib/format';
+ 
+ /** 촬영 화면 자리 표시용 그림. 백엔드가 붙으면 원본 사진·overlay 이미지로 바꾼다. */
+ export function FrameView({ o, overlay }: { o: Observation; overlay: boolean }) {
++  // 백엔드에 연결되면 실제 사진을 보여 준다 ('분석'이면 overlay, 없으면 원본)
++  if (o.img) {
++    const src = overlay && o.img.overlay ? o.img.overlay : o.img.original;
++    return <img src={src} alt={`${o.place} ${overlay ? '분석 결과' : '원본'} 사진`} style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#000' }} />;
++  }
+   const W = 320, H = 190, top = 88, bot = H;
+   const L = (y: number) => 205 + ((150 - 205) * (y - top)) / (bot - top);
+   const R = (y: number) => 248 + ((320 - 248) * (y - top)) / (bot - top);
+diff --git a/src/components/Header.tsx b/src/components/Header.tsx
+index df267ed..a5d8743 100644
+--- a/src/components/Header.tsx
++++ b/src/components/Header.tsx
+@@ -1,4 +1,7 @@
+-import type { Tab } from '../types';
++import { API_BASE } from '../api/client';
++import { SRC_LABEL } from '../lib/constants';
++import { fmtTime } from '../lib/format';
++import type { Observation, Tab } from '../types';
+ 
+ const TABS: { id: Tab; label: string }[] = [
+   { id: 'map', label: '위험 지도' },
+@@ -6,7 +9,10 @@ const TABS: { id: Tab; label: string }[] = [
+   { id: 'hold', label: '판단 유보' },
+ ];
+ 
+-export function Header({ tab, holdCount }: { tab: Tab; holdCount: number }) {
++export function Header({ tab, holdCount, obs, error }: { tab: Tab; holdCount: number; obs: Observation[]; error: string | null }) {
++  // 백엔드에 연결되면 실제 관측으로 최종 수신 시각·수집 경로별 건수를 보여 준다
++  const latest = obs.reduce<string | null>((m, o) => (!m || o.t > m ? o.t : m), null);
++  const bySrc = (['cctv', 'car', 'upload'] as const).map((s) => [s, obs.filter((o) => o.src === s).length] as const).filter(([, n]) => n > 0);
+   return (
+     <>
+       <a className="skip" href="#content">본문 바로가기</a>
+@@ -29,9 +35,21 @@ export function Header({ tab, holdCount }: { tab: Tab; holdCount: number }) {
+             </div>
+           </nav>
+           <div className="status-line">
+-            <span className="live">최종 수신 10/18 14:38</span>
+-            <span>CCTV 12대 · 단속차량 2대</span>
+-            <span className="krds-badge small outline-gray">예시 데이터</span>
++            {API_BASE ? (
++              <>
++                {latest && <span className="live">최종 촬영 {fmtTime(latest)}</span>}
++                <span>{bySrc.map(([s, n]) => `${SRC_LABEL[s]} ${n}건`).join(' · ') || '관측 없음'}</span>
++                {error
++                  ? <span className="krds-badge small bg-danger" title={error}>백엔드 연결 실패</span>
++                  : <span className="krds-badge small outline-primary">백엔드 연결</span>}
++              </>
++            ) : (
++              <>
++                <span className="live">최종 수신 10/18 14:38</span>
++                <span>CCTV 12대 · 단속차량 2대</span>
++                <span className="krds-badge small outline-gray">예시 데이터</span>
++              </>
++            )}
+           </div>
+         </div>
+       </header>
+diff --git a/src/components/MapView.tsx b/src/components/MapView.tsx
+index 7da8cce..b89273f 100644
+--- a/src/components/MapView.tsx
++++ b/src/components/MapView.tsx
+@@ -100,7 +100,7 @@ export function MapView({ obs, filters: f, setFilters, selSeg, selObs, focusKey,
+         <div className="fgroup"><h2>기간</h2><PeriodToggle value={f.period} onChange={(period) => setFilters({ ...f, period })} /></div>
+         <div className="fgroup"><h2>지점 판정 <span className="small">최신 관측 기준</span></h2>{PASS_KEYS.map((p) => chk('pass', p, PASS[p].label, cnt(p), PIN_COLOR[p].fill))}</div>
+         <div className="fgroup"><h2>처리 상태</h2>{ACTIONS.map((a: Action) => chk('act', a, a, sites.filter((s) => s.obs.action === a).length))}</div>
+-        <div className="fgroup"><h2>수집 경로</h2>{(['cctv', 'car'] as Source[]).map((s) => chk('src', s, s === 'car' ? '불법주정차 단속차량' : 'CCTV', obs.filter((o) => o.src === s && inPeriod(o, f.period)).length))}</div>
++        <div className="fgroup"><h2>수집 경로</h2>{(['cctv', 'car', 'upload'] as Source[]).map((s) => chk('src', s, s === 'car' ? '불법주정차 단속차량' : SRC_LABEL[s], obs.filter((o) => o.src === s && inPeriod(o, f.period)).length))}</div>
+         <div className="fgroup">
+           <h2>행정구역별 지점 <span className="small">누르면 검색</span></h2>
+           <AreaBars sites={sites} active={f.q.trim()} onPick={(a) => setFilters({ ...f, q: a })} />
+diff --git a/src/lib/constants.ts b/src/lib/constants.ts
+index 69ff24d..794466c 100644
+--- a/src/lib/constants.ts
++++ b/src/lib/constants.ts
+@@ -1,3 +1,4 @@
++import { API_BASE } from '../api/client';
+ import type { Action, Pass, Period, SortKey, Source } from '../types';
+ 
+ /** 판정 이름과 글자색(KRDS -60 텍스트 토큰). 지도 핀 색은 PIN_COLOR */
+@@ -32,7 +33,7 @@ export const ACTIONS: Action[] = ['미처리', '현장점검 요청', '조치 
+ export const DEPTS = ['미배정', '주차관리과', '도로관리과', '건설관리과', '교통행정과'];
+ export const PERIOD_LABEL: Record<Period, string> = { today: '오늘', '3d': '최근 3일', all: '전체 기간' };
+ export const SORT_LABEL: Record<SortKey, string> = { time: '날짜순', area: '행정구역 이름순', risk: '위험도순' };
+-export const SRC_LABEL: Record<Source, string> = { cctv: 'CCTV', car: '단속차량' };
++export const SRC_LABEL: Record<Source, string> = { cctv: 'CCTV', car: '단속차량', upload: '직접 업로드' };
+ export const RANK: Record<string, string> = {
+   '101': '고속국도', '102': '도시고속도로', '103': '일반국도', '104': '특별·광역시도',
+   '105': '국가지원지방도', '106': '지방도', '107': '시·군·구도', '108': '기타',
+@@ -46,5 +47,5 @@ export const CL_PAVE: Record<string, string> = {
+   RDQ001: '아스팔트', RDQ002: '아스팔트콘크리트', RDQ003: '콘크리트', RDQ004: '블록', RDQ005: '비포장', RDQ006: '포장',
+ };
+ export const COND_LABEL = { night: '야간', rain: '우천', occluded: '가림', mixed: '보도 구분' } as const;
+-/** 예시 데이터 기준 시각 */
+-export const DEMO_NOW = new Date('2026-10-18T14:40:00+09:00');
++/** 기준 시각: 예시 데이터면 고정 시각, 백엔드에 연결하면 현재 시각 */
++export const DEMO_NOW = API_BASE ? new Date() : new Date('2026-10-18T14:40:00+09:00');
+diff --git a/src/lib/useObservations.ts b/src/lib/useObservations.ts
+index 4a22ea7..ee9b366 100644
+--- a/src/lib/useObservations.ts
++++ b/src/lib/useObservations.ts
+@@ -1,10 +1,11 @@
+-import { useCallback, useMemo, useState } from 'react';
++import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
++import { API_BASE, fetchObservations, reanalyze, review, setActions, toObservation, type AnalysisResponse } from '../api/client';
+ import { SEG_OF } from '../data/nodelink';
+ import { SAMPLE_OBSERVATIONS } from '../data/observations';
+ import type { HistoryEntry, Observation, ObservationPatch } from '../types';
+ import { DEMO_NOW, PASS } from './constants';
+ import { addMinutes } from './format';
+-import { nearestSeg, segPlace } from './segments';
++import { nearestSeg, segById, segPlace } from './segments';
+ 
+ type Saved = Record<string, ObservationPatch & { log?: HistoryEntry[] }>;
+ const KEY = 'roadpush-web-v1';
+@@ -16,11 +17,8 @@ function save(s: Saved) {
+   try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* 저장 불가 환경 */ }
+ }
+ 
+-/**
+- * 관측 목록과 사람 판단·처리 기록.
+- * 지금은 브라우저에 저장하고, 백엔드가 붙으면 update()에서 API를 호출하면 된다.
+- */
+-export function useObservations() {
++/** 예시 데이터: 브라우저에 사람 판단·처리 기록을 저장한다 */
++function useSampleObservations() {
+   const [saved, setSaved] = useState<Saved>(load);
+ 
+   const observations = useMemo<Observation[]>(() =>
+@@ -54,5 +52,58 @@ export function useObservations() {
+     });
+   }, []);
+ 
+-  return { observations, update };
++  return { observations, update, error: null as string | null };
+ }
++
++const POLL_MS = 5000;
++
++/** 백엔드 연결: 관측을 API로 읽고, 처리 상태·사람 판정·재분석을 API로 보낸다 */
++function useApiObservations() {
++  const [rows, setRows] = useState<AnalysisResponse[]>([]);
++  const [error, setError] = useState<string | null>(null);
++  const rowsRef = useRef(rows);
++  rowsRef.current = rows;
++
++  const refresh = useCallback(async () => {
++    try { setRows(await fetchObservations()); setError(null); } catch (e) { setError((e as Error).message); }
++  }, []);
++  // 처음 한 번 + 분석 대기 중인 관측이 결과로 바뀌도록 주기적으로 다시 읽는다
++  useEffect(() => { refresh(); const t = setInterval(refresh, POLL_MS); return () => clearInterval(t); }, [refresh]);
++
++  const observations = useMemo<Observation[]>(() =>
++    rows
++      .filter((a) => a.location) // 좌표가 없는 관측은 위치 확인 전까지 화면에서 뺀다
++      .map((a) => {
++        const { base, linkId, ...rest } = toObservation(a);
++        const seg = linkId && segById.has(linkId) ? linkId : nearestSeg(base.lat, base.lng);
++        return { ...base, ...rest, seg, place: segPlace(seg) } as Observation;
++      }), [rows]);
++
++  const update = useCallback(async (ids: string | string[], patch: ObservationPatch, logTxt?: string) => {
++    const list = Array.isArray(ids) ? ids : [ids];
++    try {
++      if (patch.action !== undefined || patch.dept !== undefined) {
++        // 처리 상태와 부서는 함께 저장된다. 한쪽만 바꾸면 다른 쪽은 현재 값을 유지
++        const cur = rowsRef.current.find((a) => a.observation_id === list[0]);
++        const action = patch.action ?? (cur?.action.label as ObservationPatch['action']) ?? '미처리';
++        const dept = patch.dept ?? cur?.action.dept ?? null;
++        await setActions(list, action!, dept === '미배정' ? null : dept, logTxt);
++      }
++      if (patch.review !== undefined && patch.review !== '미검수') {
++        for (const id of list) await review(id, patch.human ?? null);
++      }
++      if (patch.reanalyze === true) {
++        for (const id of list) await reanalyze(id);
++      }
++      // 사람 판정 취소·재분석 취소·메모는 아직 백엔드에 저장하지 않는다 (docs/FRONTEND_INTEGRATION.md 참고)
++    } catch (e) {
++      setError((e as Error).message);
++    }
++    await refresh();
++  }, [refresh]);
++
++  return { observations, update, error };
++}
++
++/** 관측 목록과 사람 판단·처리 기록. VITE_API_BASE_URL이 있으면 백엔드, 없으면 예시 데이터 */
++export const useObservations = API_BASE ? useApiObservations : useSampleObservations;
+diff --git a/src/types.ts b/src/types.ts
+index a162af1..3a04022 100644
+--- a/src/types.ts
++++ b/src/types.ts
+@@ -1,6 +1,6 @@
+ export type Pass = 'blocked' | 'narrowed' | 'passable' | 'hold';
+ export type Action = '미처리' | '현장점검 요청' | '조치 중' | '조치 완료';
+-export type Source = 'cctv' | 'car';
++export type Source = 'cctv' | 'car' | 'upload';
+ export type Condition = 'night' | 'rain' | 'occluded' | 'mixed';
+ export type Review = '미검수' | '확인' | '수정';
+ export type Period = 'today' | '3d' | 'all';
+@@ -58,6 +58,8 @@ export interface ObservationBase {
+   cond?: Condition;
+   action: Action;
+   dept: string;
++  /** 백엔드 연결 시: 원본 사진·분석 결과 이미지 주소 */
++  img?: { original: string; overlay?: string };
+ }
+ 
+ /** 화면에서 쓰는 관측: AI 결과 + 사람 판단·처리 기록 */
