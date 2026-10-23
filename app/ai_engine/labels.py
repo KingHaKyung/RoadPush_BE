@@ -4,6 +4,7 @@ RoadPush 통합 라벨. 노면 모델·장애물 모델의 결과를 이 라벨�
 
 마스터 문서 V4 기준
 - 주요 장애물: 주정차 차량 후보 · 공사시설 · 적치물 · 자전거 · PM
+  (원인 배지는 프론트 처리 경로와 맞춰 차량·이륜차·PM·자전거·적치물·입간판·공사시설·쓰레기로 나눈다)
 - 상시 고정시설(가로수·가로등·전봇대·고정 난간·고정 볼라드·벤치 등)은 장애물이 아니다 → BACKGROUND
 - 임시 방호벽·펜스·콘은 공사시설로 포함
 - 사진에 차량이 있다고 '불법 주정차', 자전거·PM이 있다고 '방치'로 확정하지 않는다 → 원인은 물체 이름만 쓴다
@@ -23,42 +24,75 @@ class L(IntEnum):
     BIKE_LANE = 7  # 자전거도로. 보도와 구별이 어려우면 판단 유보 사유
 
 
-# 원인 배지: 점유 픽셀에 겹친 물체 이름 → 원인
+# 원인 배지 이름 = 프론트 처리 경로(src/lib/constants.ts ROUTES)의 키. 이름을 바꾸면 프론트도 같이 바꾼다
+CAUSES = ("차량", "이륜차", "PM", "자전거", "자전거·PM", "적치물", "입간판", "공사시설", "쓰레기")
+
+# 장애물 모델이 내는 클래스 이름(소문자·한글) → 원인 배지
 CAUSE_OF: dict[str, str] = {
-    # 차량 (COCO·Vistas·Cityscapes)
+    # ── 모델 팀 시각 클래스 (확정안: vehicle · construction · debris · micromobility) ──
+    "vehicle": "차량",  # 승용차·트럭·승합차·오토바이
+    "construction": "공사시설",  # 바리케이드
+    "debris": "적치물",  # 입간판·리어카·의자·탁자 (따로 나오면 아래 세부 이름)
+    "micromobility": "자전거·PM",  # 자전거·킥보드를 한 클래스로 낼 때. 프론트는 PM과 같은 처리 경로
+    # ── 모델 팀이 분리할 수 있는지 확인 중인 클래스 ──
+    "motorcycle": "이륜차",
+    "motorbike": "이륜차",
+    "signboard": "입간판",
+    "sandwich board": "입간판",
+    "a-board": "입간판",
+    "banner": "입간판",
+    "billboard": "입간판",
+    "trash": "쓰레기",
+    "garbage": "쓰레기",
+    "trash bag": "쓰레기",
+    "garbage bag": "쓰레기",
+    "trash can": "쓰레기",
+    # ── 세부 이름 (COCO·YOLOE 텍스트 카테고리·Vistas 등) ──
     "car": "차량",
     "truck": "차량",
     "bus": "차량",
-    "motorcycle": "차량",
+    "van": "차량",
     "caravan": "차량",
     "trailer": "차량",
     "other vehicle": "차량",
-    "van": "차량",
-    # 자전거·PM
     "bicycle": "자전거",
-    "wheeled slow": "PM",
+    "kickboard": "PM",
     "kick scooter": "PM",
     "electric scooter": "PM",
     "scooter": "PM",
-    # 공사시설 (임시)
-    "traffic cone": "공사시설",
+    "wheeled slow": "PM",
     "barricade": "공사시설",
     "barrier": "공사시설",
     "temporary barrier": "공사시설",
     "construction fence": "공사시설",
-    # 적치물
+    "traffic cone": "공사시설",
+    "cart": "적치물",
+    "handcart": "적치물",
+    "chair": "적치물",
+    "table": "적치물",
     "box": "적치물",
     "cardboard box": "적치물",
-    "trash bag": "적치물",
-    "garbage bag": "적치물",
-    "trash can": "적치물",
-    "signboard": "적치물",
-    "sandwich board": "적치물",
-    "banner": "적치물",
-    "billboard": "적치물",
+    # ── 한글 클래스 이름으로 낼 때 ──
+    "승용차": "차량",
+    "트럭": "차량",
+    "승합차": "차량",
+    "오토바이": "이륜차",
+    "바리케이드": "공사시설",
+    "입간판": "입간판",
+    "리어카": "적치물",
+    "의자": "적치물",
+    "탁자": "적치물",
+    "자전거": "자전거",
+    "킥보드": "PM",
+    "쓰레기": "쓰레기",
 }
+assert set(CAUSE_OF.values()) <= set(CAUSES)
 
-PERSON_NAMES = {"person", "pedestrian", "rider", "bicyclist", "motorcyclist", "other rider"}
+# 사람·동물: 장애물이 아니라 지면을 가리는 이동체 (기존 합의대로 장애물에서 제외)
+PERSON_NAMES = {
+    "person", "pedestrian", "rider", "bicyclist", "motorcyclist", "other rider",
+    "animal", "dog", "cat", "bird", "ground animal", "사람", "동물",
+}  # fmt: skip
 
 # 노면·장면 모델 클래스 이름(소문자) → 통합 라벨 (Mapillary Vistas · Cityscapes 공통)
 NAME_TO_L: dict[str, L] = {

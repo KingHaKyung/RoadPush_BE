@@ -74,7 +74,7 @@ def _scene(frame: np.ndarray, precomputed: np.ndarray | None) -> SceneResult:
     sr: SurfaceResult = surface.predict(frame)
     versions = {"surface": surface.version}
     obstacles = load_obstacles(s.obstacle_model, tuple(s.obstacle_weights), s.device)
-    insts = []
+    insts = list(sr.instances)
     if obstacles is not None:
         img = sr.image if sr.image is not None else frame
         insts = obstacles.predict(img)

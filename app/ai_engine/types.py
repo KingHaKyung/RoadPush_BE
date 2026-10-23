@@ -10,6 +10,7 @@ class SurfaceResult:
     class_map: np.ndarray  # H×W uint8, labels.L
     confidence: np.ndarray | None = None  # H×W float32 0~1
     image: np.ndarray | None = None  # 추론 크기의 BGR (overlay용)
+    instances: list["Instance"] = field(default_factory=list)  # 노면 모델이 장애물도 함께 낼 때 (dummy)
 
 
 @dataclass
