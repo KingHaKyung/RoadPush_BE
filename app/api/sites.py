@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..config import get_settings
 from ..db import get_db
 from ..db.models import Action, Observation, Site
-from ..services import views
+from ..services import reference, views
 from ..services.nodelink import nearest_links
 from .deps import file_url_for
 from .schemas import ActionOut, CompareOut, ObservationOut, SiteIn, SiteOut, SitePatch
@@ -46,7 +46,9 @@ def site_candidates(db: Session, lat: float, lng: float, radius_m: float | None 
             )
     out.sort(key=lambda x: x["distance_m"])
     links = [{"link_id": ln.id, "road": ln.road, "distance_m": round(d, 1)} for ln, d in nearest_links(lat, lng, k=3)]
-    return {"radius_m": radius, "sites": out, "nearby_links": links}
+    # 참고: 서울 보행 링크 참조 레이어가 있으면 가장 가까운 링크의 보도 폭·도로 정보 (없으면 null)
+    ref = reference.nearest_walk_link(db, lat, lng)
+    return {"radius_m": radius, "sites": out, "nearby_links": links, "reference_walk_link": ref}
 
 
 @router.get("/candidates")
@@ -70,6 +72,7 @@ def create_site(body: SiteIn, db: Session = Depends(get_db)):
     if not data["link_id"]:
         data["link_id"] = next((ln.id for ln, _ in nearest_links(body.lat, body.lng, k=1)), None)
     site = Site(**data)
+    reference.apply_to_site(db, site)
     db.add(site)
     db.commit()
     return site
@@ -90,8 +93,11 @@ def get_site(site_id: str, db: Session = Depends(get_db)):
 @router.patch("/{site_id}", response_model=SiteOut)
 def update_site(site_id: str, body: SitePatch, db: Session = Depends(get_db)):
     site = _site(db, site_id)
-    for k, v in body.model_dump(exclude_unset=True).items():
+    data = body.model_dump(exclude_unset=True)
+    for k, v in data.items():
         setattr(site, k, v)
+    if "sidewalk_width_m" in data:  # 사용자가 고친 폭은 현장 값으로 본다
+        site.sidewalk_width_source = "field" if data["sidewalk_width_m"] is not None else None
     db.commit()
     return site
 

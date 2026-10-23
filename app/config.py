@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     vworld_domain: str = "http://localhost:5173"  # 인증키에 등록한 서비스 URL
     geocode_timeout_sec: float = 5.0
 
+    # 참조 레이어(ref_walk_link, 팀원 제공 서울 데이터). 테이블이 없으면 쓰지 않는다
+    ref_match_max_m: float = 20.0  # 구간 위치와 보행 링크 선형의 최대 거리
+    ref_bbox_margin_m: float = 300.0  # 중심점 인덱스로 거를 때 긴 링크를 위한 여유
+    ref_width_sources: list[str] = ["building_no"]  # 구간 보도 폭으로 채울 출처 (route_approx는 근사라 기본 제외)
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..db import get_db
 from ..db.models import Analysis, Observation, ObservationNote, Review, Site
-from ..services import views
+from ..services import reference, views
 from ..services.exif import read_exif
 from ..services.nodelink import nearest_links
 from ..services.storage import get_storage
@@ -107,6 +107,7 @@ async def create_observation(
             raise HTTPException(422, "신규 구간은 위치가 필요합니다. 지도에서 위치를 지정해 주세요")
         link = next((ln.id for ln, _ in nearest_links(lat, lng, k=1)), None)
         site = Site(name=new_site_name, description=new_site_description, lat=lat, lng=lng, link_id=link)
+        reference.apply_to_site(db, site)
         db.add(site)
         db.flush()
     else:
