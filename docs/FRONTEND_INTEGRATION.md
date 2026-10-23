@@ -124,6 +124,25 @@ export const addNote = (id: string, content: string) =>
 `useApiObservations.update()`에서는 `patch.review === '미검수'`면 `cancelReview`, `patch.reanalyze === false`면 `cancelReanalyze`를 부르고,
 메모는 `ObservationPatch`에 값이 없으므로 `ObservationDetail`이 `addNote`를 직접 부르거나 `update`에 메모 인자를 추가합니다.
 
+### 2-2. 원인 배지 이름 (`causes`)
+
+백엔드 원인 이름은 프론트 `src/lib/constants.ts`의 `ROUTES` 키와 같습니다 (`app/ai_engine/labels.py`, 테스트 `tests/test_labels.py`).
+
+| 모델 팀 클래스 | 포함 물체 | `causes` | 프론트 `ROUTES` |
+|---|---|---|---|
+| `vehicle` | 승용차·트럭·승합차 (오토바이 포함, 분리 전) | `차량` | 있음 |
+| `construction` | 바리케이드 | `공사시설` | 있음 |
+| `debris` | 입간판·리어카·의자·탁자 | `적치물` | 있음 |
+| `micromobility` | 자전거·킥보드 | `자전거·PM` | **없음 → 별칭 추가 필요** |
+| 분리되면 `motorcycle` · `signboard` · `trash` | 오토바이 · 입간판 · 쓰레기 | `이륜차` · `입간판` · `쓰레기` | 있음 |
+
+- 사람·동물·상시 고정시설은 장애물이 아니라 원인 배지가 나오지 않습니다.
+- 모델이 자전거·킥보드를 한 클래스로 내면 배지가 `자전거·PM`이 됩니다. 프론트 `ROUTES`에 아래 한 줄이 없으면 배지만 보이고 처리 경로가 비어 있습니다.
+
+```ts
+'자전거·PM': { cause: '자전거·PM', type: 'A', dept: '교통행정과', guide: '공유 자전거·PM은 운영사 수거 요청, 개인 자전거 방치는 청소행정과로 넘기세요.' },
+```
+
 ### 행정구역·주소 (`area`, `addr`)
 등록할 때 비워 두면 분석 워커가 브이월드 역지오코딩으로 채웁니다 (백엔드 `.env`의 `VWORLD_KEY`, 프론트와 같은 키 사용 가능).
 형식은 프론트 `npm run geocode`와 같습니다. 이미 등록한 관측은 `python scripts/geocode_observations.py`.
@@ -223,3 +242,37 @@ Table Editor → `actions`, `action_logs`에 방금 바꾼 처리 상태가 들�
 - Vercel 프로젝트 환경 변수에 `VITE_API_BASE_URL=https://<백엔드 주소>/api/v1` 추가 후 다시 배포
 - 백엔드는 **HTTPS** 주소여야 합니다 (HTTPS 페이지에서 HTTP API 호출은 브라우저가 차단) — [GUIDE.md 5장](GUIDE.md#테스트-url-배포-구성)
 - 백엔드 `CORS_ORIGINS`에 `https://road-push-fe.vercel.app` 포함 (기본값에 들어 있음)
+
+### 지도·CCTV 프록시
+
+개발할 때는 프론트 개발 서버(`vite.config.ts`)가 `/vworld/wmts/`, `/api/utic/player`, `/api/its/*`를 처리합니다.
+Vercel에는 개발 서버가 없으므로 **같은 경로를 백엔드가 처리**하고(`app/api/proxy.py`), Vercel이 그 경로를 백엔드로 넘깁니다.
+
+```mermaid
+flowchart LR
+    B["브라우저<br/>road-push-fe.vercel.app"] -->|"/api/v1/*"| API["백엔드"]
+    B -->|"/vworld/wmts/* · /api/utic/* · /api/its/*"| V["Vercel rewrites"]
+    V --> API
+    API -->|"VWORLD_KEY"| VW["브이월드"]
+    API -->|"UTIC_API_KEY (등록 IP)"| UT["UTIC"]
+    API -->|"ITS_API_KEY"| ITS["ITS"]
+```
+
+1. **백엔드 `.env`** (배포 서버): `VWORLD_KEY`, `VWORLD_DOMAIN=https://road-push-fe.vercel.app`(브이월드 인증키에 등록한 서비스 URL), `UTIC_API_KEY`, `ITS_API_KEY`
+2. **UTIC 등록 IP**: UTIC는 등록한 IP 대역에서만 응답하므로 배포 서버의 공인 IP를 UTIC 개방데이터 신청 정보에 등록합니다.
+3. **프론트 `vercel.json`** (프론트 담당, 저장소 루트):
+
+```json
+{
+  "rewrites": [
+    { "source": "/vworld/wmts/:path*", "destination": "https://<백엔드 주소>/vworld/wmts/:path*" },
+    { "source": "/api/utic/:path*", "destination": "https://<백엔드 주소>/api/utic/:path*" },
+    { "source": "/api/its/:path*", "destination": "https://<백엔드 주소>/api/its/:path*" }
+  ]
+}
+```
+
+4. **Vercel 환경 변수 `VWORLD_KEY`**: 프론트 빌드가 이 값이 있을 때만 배경지도 프록시(`/vworld/wmts`)를 켭니다. 값 자체는 브라우저 코드에 들어가지 않습니다.
+
+- UTIC 재생 페이지는 UTIC 규격상 주소에 키가 들어갑니다 (개발 서버와 같음).
+- UTIC 영상 재생도 등록 IP에서만 될 수 있습니다. 심사위원 PC에서 UTIC 영상이 안 나오면 ITS CCTV(IP 제한 없음)로 확인하고, 시연 영상은 등록 IP PC에서 녹화합니다.

@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     vworld_domain: str = "http://localhost:5173"  # 인증키에 등록한 서비스 URL
     geocode_timeout_sec: float = 5.0
 
+    # 배포용 CCTV 프록시 (app/api/proxy.py). 프론트 .env와 같은 키를 쓴다. 비우면 그 경로는 502·503
+    utic_api_key: str = ""  # UTIC는 등록 IP 대역에서만 응답한다 → 이 서버 공인 IP를 UTIC에 등록
+    its_api_key: str = ""
+
     # 참조 레이어(ref_walk_link, 팀원 제공 서울 데이터). 테이블이 없으면 쓰지 않는다
     ref_match_max_m: float = 20.0  # 구간 위치와 보행 링크 선형의 최대 거리
     ref_bbox_margin_m: float = 300.0  # 중심점 인덱스로 거를 때 긴 링크를 위한 여유

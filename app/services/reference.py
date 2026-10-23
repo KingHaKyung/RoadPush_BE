@@ -1,6 +1,6 @@
 """
 참조 레이어: 팀원이 만든 서울 보행 링크(ref_walk_link).
-Alembic 밖에서 만든 테이블이라 docs/DB.md 4장 순서로 따로 넣는다.
+Alembic 밖에서 만든 테이블이라 docs/DB.md 6장 순서로 따로 넣는다.
 테이블이 없으면(로컬 SQLite·아직 안 넣은 DB) 모든 함수가 None을 돌려주고 나머지 기능은 그대로 돈다.
 
 - ref_walk_link.link_id는 서울시 도보 네트워크 LNKG_ID다.

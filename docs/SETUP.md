@@ -136,7 +136,13 @@ npm install
 `RoadPush_FE/.env`:
 ```
 VITE_API_BASE_URL=http://localhost:8000/api/v1
+# 지도·CCTV 키 (VITE_ 접두사 없음 → 브라우저 코드에 안 들어가고 프론트 개발 서버 프록시만 씀)
+VWORLD_KEY=<브이월드 인증키>
+UTIC_API_KEY=<UTIC 개방데이터 키>
+ITS_API_KEY=<ITS 국가교통정보센터 키>
 ```
+UTIC는 신청할 때 등록한 IP 대역에서만 응답합니다. 등록한 IP의 PC(네트워크)에서 `npm run dev`를 실행해야 UTIC CCTV가 열립니다.
+배포할 때는 같은 키를 백엔드 `.env`에 넣습니다 ([FRONTEND_INTEGRATION.md 5장](FRONTEND_INTEGRATION.md#5-배포테스트-url할-때)).
 ```bash
 npm run dev     # http://localhost:5173
 ```

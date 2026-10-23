@@ -32,6 +32,18 @@
 | F6 | `GET /sites/{id}/compare?before=&after=` | 전후 비교 |
 | | `GET /files/{key}` | 원본·overlay (응답 `images`에 전체 URL로 들어감) |
 
+`GET /sites/candidates` 응답에는 `nearby_links`(성남 표준노드링크) 외에 `reference_walk_link`(서울 보행 링크 참조 레이어, 없으면 `null`)가 들어갑니다.
+구간 응답(`SiteOut`)에는 `sidewalk_width_source`, `ref_walk_link_id`가 있습니다 (docs/DB.md 6장).
+
+**배포용 지도·CCTV 프록시** (`/api/v1` 밖, 프론트 개발 서버 프록시와 같은 경로. 문서 화면에는 안 나옴)
+
+| 경로 | 키 (백엔드 `.env`) | 동작 |
+|---|---|---|
+| `GET /vworld/wmts/{레이어/z/y/x.png}` | `VWORLD_KEY`, `VWORLD_DOMAIN` | 브이월드 배경지도 타일. 등록한 서비스 URL을 Referer로 보냄 |
+| `GET /api/utic/player?cctvid=` | `UTIC_API_KEY` | UTIC 재생 페이지로 302. 요청 간격 1.1초·카메라 정보 캐시. **UTIC에 등록한 IP의 서버에서만 동작** |
+| `GET /api/its/cctvs` | `ITS_API_KEY` | 고속도로·국도 CCTV 위치 (6시간 캐시, 영상 주소·키 제외) |
+| `GET /api/its/stream?type=&name=&lat=&lng=` | `ITS_API_KEY` | 카메라 주변을 다시 조회해 `{"hls": ...}` |
+
 ## 등록 흐름 (4.6 F1·F2)
 
 ```mermaid
@@ -129,7 +141,7 @@ sequenceDiagram
   "bottleneck_ratio": 0.55,                  // 상대 유효폭 = 남은 연속 통로 / 추정 전체 보행폭
   "bottleneck_m_est": 1.32,                  // 구간 실측 보도폭이 있을 때만 (판정에는 안 씀)
   "risk_complete": false,                    // false = 길이 항 측정 불가, 폭 항만 반영한 '부분 상대 지표'
-  "causes": ["차량"],                         // 차량 · 공사시설 · 적치물 · 자전거 · PM (상태를 단정하지 않음)
+  "causes": ["차량"],                         // 차량·이륜차·PM·자전거·자전거·PM·적치물·입간판·공사시설·쓰레기 (상태를 단정하지 않음)
   "uncertainty_code": null,                  // occluded | mixed | low_coverage | low_confidence | night
   "confidence": 0.79,
   "reasons": ["남은 연속 통로가 가장 좁은 단면에서 보행폭의 55% (기준: 통과 ≥ 60%, 단절 < 30%)"],
@@ -216,7 +228,7 @@ sequenceDiagram
 | `pass` | `passability` | `undetermined` ↔ `hold`, 처리 전·실패는 null → 별도 표시 |
 | `risk` | `risk_score` | "상대 위험도"로 표시 권장 (`risk_complete=false`) |
 | `occ` | `occupancy` | |
-| `causes` | `causes` | |
+| `causes` | `causes` | 프론트 `ROUTES` 키와 같은 이름. 모델이 자전거·킥보드를 한 클래스(`micromobility`)로 내면 `자전거·PM` → 프론트에 별칭 필요 |
 | `reason` | `uncertainty_reason` | |
 | `cond` | `uncertainty_code` | |
 | `action`, `dept` | `action.label`, `action.dept` | dept null → `미배정` |

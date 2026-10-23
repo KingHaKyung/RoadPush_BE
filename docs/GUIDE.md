@@ -150,6 +150,8 @@ flowchart LR
   **백엔드도 HTTPS 주소**가 필요합니다. VM 앞에 리버스 프록시(Caddy 등)로 인증서를 붙이거나, HTTPS를 기본 제공하는 호스팅을 씁니다.
 - 백엔드 `.env`: `DATABASE_URL`(Supabase), `CORS_ORIGINS`에 `https://road-push-fe.vercel.app` 포함(기본값에 들어 있음)
 - 프론트 Vercel 환경 변수: `VITE_API_BASE_URL=https://<백엔드 주소>/api/v1`
+- 지도·CCTV: 백엔드가 `/vworld/wmts`, `/api/utic/player`, `/api/its/*`를 처리하고 프론트 `vercel.json` rewrites로 넘깁니다.
+  **UTIC는 등록 IP에서만 응답**하므로 배포 VM의 고정 공인 IP를 UTIC에 등록합니다 ([FRONTEND_INTEGRATION.md 5장](FRONTEND_INTEGRATION.md#5-배포테스트-url할-때)).
 - 심사 기간(11월 중순까지) 내내 켜져 있어야 하므로 노트북 서버는 쓰지 않습니다. DeepLab v3+·YOLO11n은 CPU로도 장당 수 초라 큐 구조에서 충분합니다.
 - 심사위원이 바로 볼 수 있게 분석이 끝난 시연 데이터를 미리 넣어 둡니다 (`scripts/seed_demo.py --base https://<백엔드 주소>/api/v1` 또는 실제 사진 등록).
 
@@ -177,3 +179,5 @@ flowchart LR
 4. 배포 서버 (VM 종류)
 5. 저장소 공개 여부와 데이터·가중치 사용 조건 (AI Hub 수락 조건, SelectStar checkpoint, Ultralytics AGPL)
 6. 직접 촬영 사진의 얼굴·번호판 비식별 방법 (답변서2: 필수)
+7. 장애물 클래스 분리 — 모델 팀 확정안은 vehicle·construction·debris·micromobility. 오토바이·입간판·쓰레기 분리 여부 확인 중이며, 백엔드 매핑은 두 경우 모두 처리 ([FRONTEND_INTEGRATION.md 2-2](FRONTEND_INTEGRATION.md#2-2-원인-배지-이름-causes))
+8. 참조 레이어 범위 — 받은 데이터는 서울만 있어 성남 시연 구간에는 보도 폭이 붙지 않음 ([DB.md 6장](DB.md#6-참조-레이어-서울-보행-링크--도로구간--보도-구간))
