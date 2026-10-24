@@ -52,7 +52,7 @@ class Site(Base):
     link_id: Mapped[str | None] = mapped_column(String(20), index=True)
     # 선택: 현장 실측 보도 폭(m). 있으면 상대폭 × 실측폭을 추정 절대폭으로 덧붙인다 (판정에는 안 씀)
     sidewalk_width_m: Mapped[float | None] = mapped_column(Float)
-    # 보도 폭 출처: field(현장 실측·사용자 입력) | ref_building_no | ref_route_approx (참조 레이어)
+    # 보도 폭 출처: field(현장 실측·사용자 입력) | ref_ngii(성남) | ref_building_no | ref_route_approx (참조 레이어)
     sidewalk_width_source: Mapped[str | None] = mapped_column(String(24))
     # 참고: 서울 보행 링크 ref_walk_link.link_id (도보 네트워크 LNKG_ID. 표준노드링크 link_id와 다른 키)
     ref_walk_link_id: Mapped[str | None] = mapped_column(String(20))

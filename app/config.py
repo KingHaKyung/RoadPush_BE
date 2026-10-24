@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     # .env는 UTF-8로 읽는다 (한국어 주석이 있어도 Windows cp949 기본값에 영향받지 않게)
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    database_url: str = "sqlite:///./roadpush.db"
+    database_url: str = "sqlite:///./data/roadpush.db"
     storage_dir: Path = Path("./storage")
     # 프론트 개발 서버 + Vercel 배포 주소
     cors_origins: list[str] = ["http://localhost:5173", "https://road-push-fe.vercel.app"]
@@ -49,10 +49,12 @@ class Settings(BaseSettings):
     utic_api_key: str = ""  # UTIC는 등록 IP 대역에서만 응답한다 → 이 서버 공인 IP를 UTIC에 등록
     its_api_key: str = ""
 
-    # 참조 레이어(ref_walk_link, 팀원 제공 서울 데이터). 테이블이 없으면 쓰지 않는다
+    # 참조 레이어 v2 (ref_seongnam_link 성남 · ref_walk_link 서울, 팀원 제공). 테이블이 없으면 쓰지 않는다
     ref_match_max_m: float = 20.0  # 구간 위치와 보행 링크 선형의 최대 거리
     ref_bbox_margin_m: float = 300.0  # 중심점 인덱스로 거를 때 긴 링크를 위한 여유
-    ref_width_sources: list[str] = ["building_no"]  # 구간 보도 폭으로 채울 출처 (route_approx는 근사라 기본 제외)
+    # 구간 보도 폭으로 채울 출처. ngii = 성남 연속수치지형도 인도 폭, building_no = 서울 건물번호 매칭
+    # route_approx(서울 노선 근사, 평균 오차 1.31m)는 기본 제외
+    ref_width_sources: list[str] = ["ngii", "building_no"]
 
 
 @lru_cache

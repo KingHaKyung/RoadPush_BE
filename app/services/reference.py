@@ -1,12 +1,13 @@
 """
-참조 레이어: 팀원이 만든 서울 보행 링크(ref_walk_link).
-Alembic 밖에서 만든 테이블이라 docs/DB.md 6장 순서로 따로 넣는다.
-테이블이 없으면(로컬 SQLite·아직 안 넣은 DB) 모든 함수가 None을 돌려주고 나머지 기능은 그대로 돈다.
+참조 레이어 v2 (팀원 제공, scripts/load_reference.py로 넣는다. Alembic 밖 테이블)
+테이블이 없으면(아직 안 넣은 DB) 모든 함수가 None을 돌려주고 나머지 기능은 그대로 돈다.
 
-- ref_walk_link.link_id는 서울시 도보 네트워크 LNKG_ID다.
-  sites.link_id(표준노드링크 LINK_ID)와 다른 키라 sites.ref_walk_link_id에 따로 둔다
+- ref_seongnam_link: 성남시 전체 표준노드링크. link_id가 sites.link_id와 같은 키
+  보도폭은 연속수치지형도 인도 폭(0.5m 단위 대표값, 가로수·볼라드 미차감). 출처 ref_ngii
+- ref_walk_link: 서울 보행 링크. link_id는 서울시 도보 네트워크 LNKG_ID라 sites.ref_walk_link_id에 따로 둔다
+  보도 폭 출처: building_no(건물번호로 구간 매칭) · route_approx(노선 단위 근사)
 - 보도 폭은 참고값이다. 판정은 상대폭으로 하고, 폭은 '상대폭 × 보도 폭' 추정 절대폭을 덧붙일 때만 쓴다
-- 보도 폭 출처: building_no(건물번호로 구간 매칭) · route_approx(노선 단위 근사). 기본은 building_no만 채운다
+- 등급(grade_*)은 참고용이라 판정에 쓰지 않는다
 """
 
 import logging
@@ -23,17 +24,37 @@ log = logging.getLogger("roadpush.reference")
 
 COLUMNS = (
     "link_id, sgg_nm, emd_nm, road_name, length_m, is_shared_with_car, is_crosswalk, is_underpass, is_overpass, "
-    "sidewalk_width_m, sidewalk_width_source, effective_width_m, grade_mobility, grade_pedestrian, "
+    "is_indoor_candidate, sidewalk_width_m, sidewalk_width_source, grade_mobility, grade_pedestrian, "
     "center_lat, center_lng, geom_wkt"
 )
-_has: dict[str, bool] = {}
+SEONGNAM_COLUMNS = (
+    "link_id, sgg_nm, road_name, road_rank, length_m, lanes_total, road_width_m, has_sidewalk, "
+    "sidewalk_left_width_m, sidewalk_right_width_m, sidewalk_width_m, sidewalk_width_source, is_backstreet, "
+    "grade_mobility, grade_pedestrian, unjudged_reason, center_lat, center_lng"
+)
+_has: dict[tuple[str, str], bool] = {}
 
 
-def has_reference(db: Session) -> bool:
-    url = str(db.get_bind().url)
-    if url not in _has:
-        _has[url] = inspect(db.get_bind()).has_table("ref_walk_link")
-    return _has[url]
+def has_reference(db: Session, table: str = "ref_walk_link") -> bool:
+    key = (str(db.get_bind().url), table)
+    if key not in _has:
+        _has[key] = inspect(db.get_bind()).has_table(table)
+    return _has[key]
+
+
+def seongnam_link(db: Session, link_id: str | None) -> dict | None:
+    """표준노드링크 LINK_ID로 성남 참조 링크 (도로폭·보도 유무·보도폭·이면도로)"""
+    if not link_id or not has_reference(db, "ref_seongnam_link"):
+        return None
+    row = (
+        db.execute(text(f"SELECT {SEONGNAM_COLUMNS} FROM ref_seongnam_link WHERE link_id = :id"), {"id": link_id})
+        .mappings()
+        .first()
+    )
+    if row is None:
+        return None
+    # SQLite는 boolean을 1/0으로 돌려준다 → PostgreSQL과 같게
+    return {k: bool(v) if k in ("has_sidewalk", "is_backstreet") and v is not None else v for k, v in row.items()}
 
 
 def _lines(wkt: str | None) -> list[list[tuple[float, float]]]:
@@ -59,8 +80,8 @@ def distance_m(lat: float, lng: float, wkt: str | None, center: tuple[float, flo
 
 def nearest_walk_link(db: Session, lat: float, lng: float, max_m: float | None = None) -> dict | None:
     """
-    좌표에서 가장 가까운 보행 링크 (max_m 안). 사진은 지상 보도에서 찍으므로 횡단보도·지하보도·육교 링크는 뺀다.
-    지하철역 연결통로 중 is_underpass가 false로 들어간 링크는 아직 걸러지지 않는다 (데이터 쪽 보완 요청)
+    좌표에서 가장 가까운 보행 링크 (max_m 안). 사진은 지상 보도에서 찍으므로
+    횡단보도·지하보도·육교와 지하·실내 후보(is_indoor_candidate, v2) 링크는 뺀다
     """
     if not has_reference(db):
         return None
@@ -72,7 +93,8 @@ def nearest_walk_link(db: Session, lat: float, lng: float, max_m: float | None =
     rows = db.execute(
         text(
             f"SELECT {COLUMNS} FROM ref_walk_link WHERE center_lat BETWEEN :a AND :b "
-            "AND center_lng BETWEEN :c AND :d AND NOT (is_crosswalk OR is_underpass OR is_overpass)"
+            "AND center_lng BETWEEN :c AND :d "
+            "AND NOT (is_crosswalk OR is_underpass OR is_overpass OR is_indoor_candidate)"
         ),
         {"a": lat - dlat, "b": lat + dlat, "c": lng - dlng, "d": lng + dlng},
     ).mappings()
@@ -90,20 +112,28 @@ def nearest_walk_link(db: Session, lat: float, lng: float, max_m: float | None =
 
 def apply_to_site(db: Session, site: Site) -> None:
     """
-    구간 등록 때 가까운 보행 링크를 붙이고, 현장 실측 폭이 없으면 참조 보도 폭으로 채운다.
-    실측 폭을 넣었으면 그 값을 쓴다 (출처 field). 조회가 실패해도 구간 등록은 그대로 진행한다.
+    구간 등록 때 참조 레이어로 보도 폭을 채운다. 현장 실측 폭을 넣었으면 그 값을 쓴다 (출처 field).
+    성남: site.link_id로 ref_seongnam_link → ref_ngii. 서울: 20m 안 보행 링크 → ref_building_no 등.
+    조회가 실패해도 구간 등록은 그대로 진행한다.
     """
     if site.sidewalk_width_m is not None:
         site.sidewalk_width_source = site.sidewalk_width_source or "field"
+    allowed = get_settings().ref_width_sources
     try:
-        ref = nearest_walk_link(db, site.lat, site.lng)
+        sn = seongnam_link(db, site.link_id)
+        ref = None if sn else nearest_walk_link(db, site.lat, site.lng)
     except Exception:  # 참조 레이어 문제로 구간 등록을 막지 않는다
-        log.exception("참조 보행 링크 조회 실패")
+        log.exception("참조 레이어 조회 실패")
+        return
+    if sn is not None:
+        if site.sidewalk_width_m is None and sn["sidewalk_width_m"] and "ngii" in allowed:
+            site.sidewalk_width_m = float(sn["sidewalk_width_m"])
+            site.sidewalk_width_source = "ref_ngii"
         return
     if ref is None:
         return
     site.ref_walk_link_id = ref["link_id"]
     src = ref["sidewalk_width_source"]
-    if site.sidewalk_width_m is None and ref["sidewalk_width_m"] and src in get_settings().ref_width_sources:
+    if site.sidewalk_width_m is None and ref["sidewalk_width_m"] and src in allowed:
         site.sidewalk_width_m = float(ref["sidewalk_width_m"])
         site.sidewalk_width_source = f"ref_{src}"

@@ -4,7 +4,7 @@
 
 | 환경 | DB | 사진·mask 파일 |
 |---|---|---|
-| 로컬 개발 (팀원 각자 PC) | SQLite (`roadpush.db`, 설치 불필요) | 각 PC의 `storage/` |
+| 로컬 개발 (팀원 각자 PC) | SQLite (`data/roadpush.db`, 설치 불필요) | 각 PC의 `storage/` |
 | 배포 서버 (테스트 URL) | **Supabase PostgreSQL** | 배포 서버의 `storage/` |
 | 테스트 | SQLite 기본, `TEST_DATABASE_URL`로 PostgreSQL | 임시 폴더 |
 
@@ -82,7 +82,7 @@ flowchart LR
    ```
    `[FAIL] 연결 실패`면 출력된 안내(주소 형식·비밀번호·일시정지)를 확인합니다.
 5. Supabase 대시보드 **Table Editor**에서 6개 테이블과 `alembic_version`이 보이는지 확인합니다
-6. 로컬 `.env`의 `DATABASE_URL`을 `sqlite:///./roadpush.db`로 되돌립니다 (1장 운영 규칙 2)
+6. 로컬 `.env`의 `DATABASE_URL`을 `sqlite:///./data/roadpush.db`로 되돌립니다 (1장 운영 규칙 2)
 7. 배포 서버의 `.env`에 3번 주소를 넣고 백엔드를 실행합니다. 서버 시작 때 마이그레이션이 자동 적용됩니다
 
 `.env`는 Git에 올라가지 않습니다. 비밀번호는 메신저·문서·코드에 붙여 넣지 않습니다.
@@ -173,7 +173,7 @@ erDiagram
 | lat, lng | float | | 지도 대표 위치 |
 | link_id | varchar(20) | ✓ | 국토교통부 표준노드링크 LINK_ID. 참고용이며 구간 확정을 대신하지 않음 |
 | sidewalk_width_m | float | ✓ | 보도폭(m). 있으면 추정 절대폭을 덧붙임 (판정에는 안 씀) |
-| sidewalk_width_source | varchar(24) | ✓ | `field`(현장 실측·사용자 입력) · `ref_building_no` · `ref_route_approx`(참조 레이어) |
+| sidewalk_width_source | varchar(24) | ✓ | `field`(현장 실측·사용자 입력) · `ref_ngii`(성남) · `ref_building_no` · `ref_route_approx`(서울, 참조 레이어) |
 | ref_walk_link_id | varchar(20) | ✓ | 참고: 서울 보행 링크 `ref_walk_link.link_id`(도보 네트워크 LNKG_ID). 표준노드링크 `link_id`와 다른 키 |
 | created_at | timestamptz | | |
 
@@ -290,35 +290,38 @@ alembic upgrade head --sql                                    # DB에 붙지 않
 - 이미 푸시한 마이그레이션 파일은 고치지 말고 새 파일을 추가합니다.
 - 두 사람이 동시에 마이그레이션을 만들면 순서가 갈라집니다. **스키마 변경은 백엔드 담당 한 명이 맡습니다.**
 
-## 6. 참조 레이어 (서울 보행 링크 · 도로구간 · 보도 구간)
+## 6. 참조 레이어 v2 (성남 표준노드링크 · 서울 보행 링크 · 도로구간 · 보도 구간)
 
-공공데이터를 가공한 **읽기 전용 참고 자료**입니다. 관측·분석 데이터와 달리 원본에서 다시 만들어 통째로 갈아 끼우므로
-Alembic 마이그레이션이 아니라 데이터 담당이 준 SQL 두 파일로 넣습니다.
+공공데이터를 가공한 **읽기 전용 참고 자료**입니다 (데이터 담당 제공, `roadpush_ref_db_v2_1`). 관측·분석 데이터와 달리 원본에서 다시 만들어
+통째로 갈아 끼우므로 Alembic 마이그레이션이 아니라 `scripts/load_reference.py`로 넣습니다.
+테이블 정의는 `scripts/reference/ref_schema_v2.sql`(제공 `01_schema.sql` 그대로)입니다.
 
 | 테이블 | 행 수 | 내용 |
 |---|---|---|
-| `ref_walk_link` | 279,016 | 서울시 도보 네트워크 링크 + 도로폭·보도폭·가로수 수·교통약자 참고 등급·선형(WKT) |
-| `ref_road_segment` | 66,683 | 도로명주소 도로구간 + 고시폭·실폭·연속수치지형도 폭 |
-| `ref_sidewalk_section` | 5,356 | 서울시 보도 구간(노선·방향·폭·포장) + 링크 매칭 방법 |
+| `ref_seongnam_link` | 10,680 | **성남시 전체**(수정·중원·분당구) 표준노드링크 + 도로폭·보도 유무·좌우 보도폭·이면도로·선형. `link_id` = `sites.link_id` |
+| `ref_walk_link` | 279,016 | 서울시 도보 네트워크 링크 + 도로폭·보도폭·지하·실내 후보·참고 등급·선형. `link_id`는 LNKG_ID(표준노드링크 아님) |
+| `ref_road_segment` | 66,683 | 서울 도로명주소 도로구간 + 고시폭·실폭·연속수치지형도 폭·지하 여부 |
+| `ref_sidewalk_section` | 5,351 | 서울시 보도 구간(노선·방향·폭·포장) + 링크 매칭 방법 |
 
-**백엔드에서 쓰는 곳** (`app/services/reference.py`)
-- 구간 등록(`POST /sites`, 관측 등록의 신규 구간) 때 구간 위치에서 **20 m 안의 가장 가까운 보행 링크**를 `sites.ref_walk_link_id`에 기록합니다.
-  사진은 지상 보도에서 찍으므로 횡단보도·지하보도·육교 링크는 뺍니다.
-- 현장 실측 폭을 넣지 않았으면 그 링크의 보도 폭으로 `sites.sidewalk_width_m`을 채웁니다.
-  출처가 `building_no`(건물번호로 구간 매칭)인 값만 채우고, `route_approx`(노선 단위 근사)는 `REF_WIDTH_SOURCES`로 켤 때만 씁니다.
-- `GET /sites/candidates` 응답의 `reference_walk_link`로 등록 전에 보도 폭·도로 정보를 보여 줄 수 있습니다.
-- 판정은 여전히 사진 속 **상대폭**으로 합니다. 보도 폭은 "상대폭 × 보도 폭" 추정 절대폭을 덧붙일 때만 씁니다.
-- 테이블이 없으면(로컬 SQLite, 아직 안 넣은 DB) 위 기능만 건너뛰고 나머지는 그대로 동작합니다.
-- 범위는 **서울**입니다. 성남 시연 구간에는 링크가 붙지 않습니다.
+**백엔드에서 쓰는 곳**
+- 링크 매칭 (`app/services/nodelink.py`): `ref_seongnam_link`가 있으면 성남시 전체 링크(도시고속도로 제외)에서
+  가장 가까운 링크를 `sites.link_id`로 정합니다. 없으면 예시 GeoJSON(분당구 일부 759링크)을 씁니다. 서버 시작 후 처음 한 번 읽습니다.
+- 보도 폭 (`app/services/reference.py`): 현장 실측 폭이 없으면
+  - 성남: `site.link_id`의 `ref_seongnam_link.sidewalk_width_m`(좌우 중 좁은 쪽) → 출처 `ref_ngii`
+  - 서울: 20 m 안 보행 링크(횡단보도·지하보도·육교·지하·실내 후보 제외) → `sites.ref_walk_link_id`, 출처 `ref_building_no`
+  - 채울 출처는 `REF_WIDTH_SOURCES` (기본 `["ngii","building_no"]`. 서울 `route_approx`는 평균 오차 1.31 m라 제외)
+- `GET /sites/candidates`: `reference_link`(성남, 도로폭·보도 유무·이면도로) / `reference_walk_link`(서울)
+- 판정은 여전히 사진 속 **상대폭**으로 합니다. 보도 폭은 "상대폭 × 보도 폭" 추정 절대폭을 덧붙일 때만 씁니다. 참고 등급(`grade_*`)은 쓰지 않습니다.
+- 테이블이 없으면 위 기능만 건너뛰고 나머지는 그대로 동작합니다.
+- 한계: 연속수치지형도 보도폭은 0.5 m 단위 대표값이고 가로수·볼라드를 빼지 않은 폭입니다. 아주 좁은 골목은 표준노드링크에 링크가 없습니다.
 
-**넣는 순서** (배포 DB 1곳만. 팀원 로컬은 필요 없음)
+**넣는 순서**
 
 ```bash
-psql "<Session pooler 주소, postgresql://로 시작>" -f 01_schema.sql      # 테이블·인덱스·RLS
-gunzip -c roadpush_ref_02_data.sql.gz | psql "<같은 주소>"              # 데이터 (TRUNCATE 후 COPY)
+python scripts/load_reference.py <CSV 폴더>                                   # .env DATABASE_URL (로컬 SQLite 포함)
+python scripts/load_reference.py --from-db sqlite:///./data/roadpush.db --to "<Session pooler 주소>"   # 로컬에 넣은 것을 Supabase로
 ```
 
-- `01_schema.sql`이 세 테이블에 RLS를 켭니다 (1장 운영 규칙 1과 같음).
-- 다시 넣을 때도 같은 두 명령입니다 (데이터 파일이 먼저 TRUNCATE).
+- 네 테이블을 비우고 다시 넣습니다. PostgreSQL에서는 스키마 파일 전체를 실행해 RLS도 켭니다 (1장 운영 규칙 1).
 - 마이그레이션 환경(`migrations/env.py`)이 `ref_`로 시작하는 테이블을 제외하므로 `alembic check`·autogenerate가 이 테이블을 지우려 하지 않습니다.
-- 로컬 PostgreSQL 16에 실제 파일을 넣어 적재·`alembic check`·구간 매칭·전체 테스트를 확인했습니다 (서울 좌표 조회 1건 약 20~40 ms).
+- 로컬 SQLite 적재 약 20초, DB 파일 약 95 MB.

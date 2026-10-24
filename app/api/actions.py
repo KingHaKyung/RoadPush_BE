@@ -1,5 +1,7 @@
 """F5 현장조치. 조치는 구간 단위이고 조치 전 관측(필수)과 재촬영 후 관측(선택)을 연결한다."""
 
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -71,16 +73,24 @@ def update_action(action_id: str, body: ActionPatch, db: Session = Depends(get_d
     return views.action_out(_action(db, action_id))
 
 
+# 프론트가 화면 기록 문구를 그대로 content로 보낸다. 처리 상태·부서는 이력 줄에 이미 나오므로 이 문구는 버린다
+SCREEN_LOG = re.compile(r"^(처리 상태|담당 부서): ")
+
+
 def _upsert(db: Session, obs: Observation, body: ObservationActionIn) -> None:
     a = db.scalar(
         select(Action).where(Action.before_observation_id == obs.id).order_by(Action.created_at.desc()).limit(1)
     )
+    content = None if body.content and SCREEN_LOG.match(body.content) else body.content
     if a is None:
-        if body.state == "none":
+        # 미처리 관측에서 부서만 배정해도 저장한다 (state=none 조치)
+        if body.state == "none" and not body.dept:
             return
-        _create(db, obs, body.state, body.dept, body.content, body.actor)
+        _create(db, obs, body.state, body.dept, content, body.actor)
     else:
-        _update(db, a, body.state, body.dept, body.content, actor=body.actor, note=body.content)
+        if "dept" in body.model_fields_set and body.dept is None:
+            a.dept = None  # 프론트 '미배정' = dept null → 배정 해제
+        _update(db, a, body.state, body.dept, content, actor=body.actor, note=content)
 
 
 @router.post("/observations/{obs_id}/action", response_model=ObservationOut, tags=["observations"])

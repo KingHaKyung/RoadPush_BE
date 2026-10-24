@@ -15,8 +15,8 @@ class DummySurface:
     원인 배지·프론트 처리 경로를 확인할 수 있게 이미지마다 다른 물체 이름을 붙인다.
     """
 
-    # 모델 팀 확정 클래스와 분리 후보 (labels.CAUSE_OF로 원인 배지가 된다)
-    NAMES = ("vehicle", "motorcycle", "micromobility", "debris", "signboard", "construction", "trash")
+    # 모델 팀 시각 클래스 (labels.CAUSE_OF로 원인 배지가 된다)
+    NAMES = ("vehicle", "construction", "debris", "micromobility")
 
     version = "dummy-0"
 

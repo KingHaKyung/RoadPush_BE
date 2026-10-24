@@ -23,10 +23,11 @@
 | F5 | `POST /observations/{id}/reviews` | 확인(의견) / 수정(사람 판정 + 이유). 분석 단위로 저장 |
 | F5 | `POST /observations/{id}/reviews/cancel` | 확인·수정 취소 → 미검수 (이력은 남김) |
 | | `POST /observations/{id}/notes` | 메모. 처리 상태·검수는 바꾸지 않고 `history`에 남음 |
+| | `DELETE /observations/{id}` | 잘못 올린 관측 삭제(관리용, 되돌릴 수 없음) → 204. 분석·검수·메모·조치·사진 파일까지. 분석 중이면 409 |
 | F5 | `POST /observations/{id}/action` | 처리 상태 변경 (이 관측을 '조치 전'으로 하는 조치를 만들거나 갱신) |
 | F5 | `POST /observations/bulk-action` | 여러 관측 일괄 처리 |
 | F5 | `POST /actions` · `PATCH /actions/{id}` | 조치 생성·갱신, **조치 후 관측 연결**(`after_observation_id`) |
-| | `GET / POST /sites` · `GET / PATCH /sites/{id}` | 구간 |
+| | `GET / POST /sites` · `GET / PATCH / DELETE /sites/{id}` | 구간. 삭제는 관측이 없을 때만 (있으면 409) |
 | F6 | `GET /sites/{id}/observations` | 같은 구간 관측 촬영시각 순 (전후 선택용) |
 | F6 | `GET /sites/{id}/actions` | 구간 조치 이력 |
 | F6 | `GET /sites/{id}/compare?before=&after=` | 전후 비교 |
@@ -141,7 +142,7 @@ sequenceDiagram
   "bottleneck_ratio": 0.55,                  // 상대 유효폭 = 남은 연속 통로 / 추정 전체 보행폭
   "bottleneck_m_est": 1.32,                  // 구간 실측 보도폭이 있을 때만 (판정에는 안 씀)
   "risk_complete": false,                    // false = 길이 항 측정 불가, 폭 항만 반영한 '부분 상대 지표'
-  "causes": ["차량"],                         // 차량·이륜차·PM·자전거·자전거·PM·적치물·입간판·공사시설·쓰레기 (상태를 단정하지 않음)
+  "causes": ["차량"],                         // 차량·공사시설·적치물·PM (시각 클래스 4개. 상태를 단정하지 않음)
   "uncertainty_code": null,                  // occluded | mixed | low_coverage | low_confidence | night
   "confidence": 0.79,
   "reasons": ["남은 연속 통로가 가장 좁은 단면에서 보행폭의 55% (기준: 통과 ≥ 60%, 단절 < 30%)"],
@@ -228,7 +229,7 @@ sequenceDiagram
 | `pass` | `passability` | `undetermined` ↔ `hold`, 처리 전·실패는 null → 별도 표시 |
 | `risk` | `risk_score` | "상대 위험도"로 표시 권장 (`risk_complete=false`) |
 | `occ` | `occupancy` | |
-| `causes` | `causes` | 프론트 `ROUTES` 키와 같은 이름. 모델이 자전거·킥보드를 한 클래스(`micromobility`)로 내면 `자전거·PM` → 프론트에 별칭 필요 |
+| `causes` | `causes` | 프론트 `ROUTES` 키와 같은 이름 (vehicle→차량, construction→공사시설, debris→적치물, micromobility→PM) |
 | `reason` | `uncertainty_reason` | |
 | `cond` | `uncertainty_code` | |
 | `action`, `dept` | `action.label`, `action.dept` | dept null → `미배정` |

@@ -1,5 +1,6 @@
 """파일 저장소. MVP는 로컬 폴더, 나중에 MinIO/S3로 바꿔도 키 형식은 그대로 둔다."""
 
+import shutil
 from pathlib import Path
 
 import cv2
@@ -31,6 +32,10 @@ class LocalStorage:
         if not ok:
             raise RuntimeError(f"이미지 인코딩 실패: {key}")
         return self.put_bytes(key, buf.tobytes())  # 바이트로 저장 → 한글 경로에서도 동작
+
+    def delete_dir(self, prefix: str) -> None:
+        """키 접두사 폴더를 통째로 지운다 (예: observations/obs_x). 없으면 무시"""
+        shutil.rmtree(self.path(prefix), ignore_errors=True)
 
     def read_image(self, key: str) -> np.ndarray:
         img = imageio.imread(self.path(key), cv2.IMREAD_UNCHANGED)

@@ -249,7 +249,7 @@ class SiteOut(BaseModel):
     lng: float
     link_id: str | None
     sidewalk_width_m: float | None
-    sidewalk_width_source: str | None = None  # field | ref_building_no | ref_route_approx
+    sidewalk_width_source: str | None = None  # field | ref_ngii | ref_building_no | ref_route_approx
     ref_walk_link_id: str | None = None
     created_at: datetime
 

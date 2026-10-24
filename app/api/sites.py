@@ -1,9 +1,9 @@
-"""구간 후보 제안·확인(4.2) · 구간 관리 · 구간 관측 시간순 · F6 전후 비교"""
+"""구간 후보 제안·확인(4.2) · 구간 관리·삭제 · 구간 관측 시간순 · F6 전후 비교"""
 
 import math
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..config import get_settings
@@ -46,9 +46,17 @@ def site_candidates(db: Session, lat: float, lng: float, radius_m: float | None 
             )
     out.sort(key=lambda x: x["distance_m"])
     links = [{"link_id": ln.id, "road": ln.road, "distance_m": round(d, 1)} for ln, d in nearest_links(lat, lng, k=3)]
-    # 참고: 서울 보행 링크 참조 레이어가 있으면 가장 가까운 링크의 보도 폭·도로 정보 (없으면 null)
-    ref = reference.nearest_walk_link(db, lat, lng)
-    return {"radius_m": radius, "sites": out, "nearby_links": links, "reference_walk_link": ref}
+    # 참고: 참조 레이어가 있으면 가장 가까운 링크의 도로폭·보도 유무·보도폭 (없으면 null)
+    # 성남은 표준노드링크 기준(reference_link), 서울은 보행 링크 기준(reference_walk_link)
+    ref_link = reference.seongnam_link(db, links[0]["link_id"]) if links else None
+    ref = None if ref_link else reference.nearest_walk_link(db, lat, lng)
+    return {
+        "radius_m": radius,
+        "sites": out,
+        "nearby_links": links,
+        "reference_link": ref_link,
+        "reference_walk_link": ref,
+    }
 
 
 @router.get("/candidates")
@@ -100,6 +108,17 @@ def update_site(site_id: str, body: SitePatch, db: Session = Depends(get_db)):
         site.sidewalk_width_source = "field" if data["sidewalk_width_m"] is not None else None
     db.commit()
     return site
+
+
+@router.delete("/{site_id}", status_code=204)
+def delete_site(site_id: str, db: Session = Depends(get_db)):
+    """관측이 없는 구간만 지운다 (관측이 있으면 409 → 관측을 먼저 지운다)"""
+    site = _site(db, site_id)
+    if db.scalar(select(func.count()).select_from(Observation).where(Observation.site_id == site_id)):
+        raise HTTPException(409, "이 구간에 관측이 있어 지울 수 없습니다. 관측을 먼저 지워 주세요")
+    db.delete(site)
+    db.commit()
+    return Response(status_code=204)
 
 
 @router.get("/{site_id}/observations", response_model=list[ObservationOut])

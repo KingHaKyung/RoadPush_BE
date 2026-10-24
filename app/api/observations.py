@@ -1,5 +1,5 @@
 """
-F1 관측 등록·구간 확인 · F2 분석 상태 · F4 상세 · F5 확인·수정·취소 · F7 검수 표 · 메모
+F1 관측 등록·구간 확인 · F2 분석 상태 · F4 상세 · F5 확인·수정·취소 · F7 검수 표 · 메모 · 삭제
 """
 
 from datetime import UTC, datetime
@@ -7,13 +7,13 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
-from sqlalchemy import update
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..db import get_db
-from ..db.models import Analysis, Observation, ObservationNote, Review, Site
+from ..db.models import Action, ActionLog, Analysis, Observation, ObservationNote, Review, Site
 from ..services import reference, views
 from ..services.exif import read_exif
 from ..services.nodelink import nearest_links
@@ -273,3 +273,30 @@ def add_note(obs_id: str, body: NoteIn, request: Request, db: Session = Depends(
     db.add(ObservationNote(observation_id=obs_id, content=content, author=body.author))
     db.commit()
     return one(db, obs_id, request)
+
+
+@router.delete("/{obs_id}", status_code=204)
+def delete_observation(obs_id: str, db: Session = Depends(get_db)):
+    """
+    잘못 올린 관측 삭제 (관리용. 되돌릴 수 없음).
+    분석·검수·메모·이 관측을 '조치 전'으로 하는 조치와 사진 파일을 함께 지운다.
+    '조치 후'로 연결된 조치는 연결만 끊는다. 구간은 남긴다 (비었으면 DELETE /sites/{id}). 분석 중이면 409
+    """
+    obs = load(db, obs_id)
+    if any(a.status == "processing" for a in obs.analyses):
+        raise HTTPException(409, "분석 중이라 지금은 지울 수 없습니다. 분석이 끝난 뒤 다시 시도해 주세요")
+    ana_ids = [a.id for a in obs.analyses]
+    act_ids = list(db.scalars(select(Action.id).where(Action.before_observation_id == obs_id)))
+    db.execute(update(Action).where(Action.after_observation_id == obs_id).values(after_observation_id=None))
+    db.execute(delete(ActionLog).where(ActionLog.action_id.in_(act_ids)))
+    db.execute(delete(Action).where(Action.id.in_(act_ids)))
+    db.execute(delete(Review).where(Review.analysis_id.in_(ana_ids)))
+    db.execute(delete(ObservationNote).where(ObservationNote.observation_id == obs_id))
+    db.execute(delete(Analysis).where(Analysis.observation_id == obs_id))
+    db.execute(delete(Observation).where(Observation.id == obs_id))
+    db.commit()
+    st = get_storage()
+    st.delete_dir(f"observations/{obs_id}")
+    for a in ana_ids:
+        st.delete_dir(f"analyses/{a}")
+    return Response(status_code=204)

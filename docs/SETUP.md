@@ -78,7 +78,7 @@ cp .env.example .env        # macOS · Linux
 uvicorn app.main:app --reload
 ```
 
-아래처럼 나오면 성공입니다. 처음 실행할 때 `roadpush.db`(SQLite)와 테이블이 자동으로 만들어집니다.
+아래처럼 나오면 성공입니다. 처음 실행할 때 `data/roadpush.db`(SQLite)와 테이블이 자동으로 만들어집니다.
 ```
 INFO:alembic.runtime.migration:Running upgrade  -> 0001, 초기 스키마: 구간·관측·분석·검수·조치 …   ← 처음 한 번만
 INFO:roadpush.worker:분석 워커 시작 (surface=dummy, obstacles=none)
@@ -113,7 +113,8 @@ python scripts/seed_demo.py
 
 dummy 모델은 사진 내용을 보지 않고 가짜 장면을 만듭니다. 판정 결과는 흐름 확인용입니다.
 
-처음부터 다시 하고 싶으면 서버를 끄고 `roadpush.db`와 `storage/` 폴더를 지운 뒤 다시 실행합니다.
+처음부터 다시 하고 싶으면 서버를 끄고 `data/roadpush.db`와 `storage/` 폴더를 지운 뒤 다시 실행합니다.
+DB 파일에는 참조 레이어(ref_*, 성남·서울 보도 폭)도 들어 있어 함께 지워집니다. 다시 넣으려면 [DB.md 6장](DB.md)의 `scripts/load_reference.py`를 실행합니다.
 
 ## 7. 프론트 연결 (선택)
 
@@ -212,6 +213,24 @@ Mask2Former Swin-Tiny Cityscapes는 한국 보도에서 성능이 낮았던 비�
    python scripts/analyze_folder.py work/sample --out outputs/check_selectstar
    ```
 
+### 8-4. 팀 장애물 모델(시각 클래스)을 받으면
+1. 받을 것: Ultralytics 가중치(`.pt`). 클래스 이름은 `vehicle`·`construction`·`debris`·`micromobility`
+   (대소문자 무관, 한글 이름도 가능. 매핑은 `app/ai_engine/labels.py`의 `CAUSE_OF`)
+2. `model_weights/`에 넣고 `.env`를 고치기 전에 점검합니다
+   ```bash
+   python scripts/check_model.py <보도 사진.jpg> --obstacle-weights model_weights/roadpush_obstacle_v1.pt
+   ```
+   - 클래스 이름마다 어떤 원인 배지가 되는지, **버려지는 이름**이 있는지 보여 줍니다. 장애물인데 버려지면 `CAUSE_OF`에 추가합니다
+   - segmentation(`-seg`) 모델이면 mask를 쓰고, 박스만 내는 detection 모델이면 박스 사각형을 영역으로 씁니다.
+     박스는 바닥·배경까지 포함해 **점유율이 높게** 나오므로 결과 `model_version`에 `(bbox)`가 붙습니다
+   - 판정·걸린 시간과 overlay(`outputs/check_model/`)로 동작을 확인합니다
+3. 문제가 없으면 `.env`에 반영하고 서버를 다시 켭니다
+   ```
+   OBSTACLE_MODEL=yolo
+   OBSTACLE_WEIGHTS=["model_weights/roadpush_obstacle_v1.pt"]
+   ```
+   노면 모델이 아직 `dummy`면 dummy가 그린 가짜 장면 위에 실제 장애물이 섞이므로, 노면 모델(8-2 `hf` 또는 8-3 `selectstar`)과 함께 바꿉니다.
+
 ## 9. 테스트
 
 ```bash
@@ -263,4 +282,4 @@ git push -u origin feat/짧은-설명              # GitHub에서 main으로 Pul
 | `422 captured_at에 시간대` | `2026-10-21T14:30:00+09:00`처럼 `+09:00` 붙이기 |
 | 실제 모델에서 `torch` 없음 | [8-1](#8-1-cuda용-pytorch-설치) |
 | `torch.cuda.is_available()`이 False | CPU용 torch가 깔림 → `pip uninstall torch` 후 CUDA용 명령으로 다시 설치 |
-| DB를 초기화하고 싶음 | 서버 끄고 `roadpush.db`, `storage/` 삭제 |
+| DB를 초기화하고 싶음 | 서버 끄고 `data/roadpush.db`, `storage/` 삭제 (참조 레이어도 지워지므로 `scripts/load_reference.py`로 다시 넣기) |
