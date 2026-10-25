@@ -1,0 +1,16 @@
+# /etc/systemd/system/roadpush.service — 서버가 재부팅돼도 백엔드를 자동으로 다시 띄운다
+[Unit]
+Description=RoadPush backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/RoadPush_BE
+# 분석 워커가 API 프로세스 안에서 돌기 때문에 uvicorn 워커는 1개
+ExecStart=/home/ubuntu/RoadPush_BE/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --proxy-headers
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,7 +1,7 @@
 """
 배포용 외부 지도·CCTV 프록시. 프론트 vite.config.ts 개발 서버 프록시와 같은 경로·동작이다.
-개발할 때는 프론트 개발 서버가 처리하고, 배포하면 Vercel rewrites로 이 백엔드에 넘긴다
-(docs/FRONTEND_INTEGRATION.md 5장).
+프론트 배포(Vercel)는 지도·ITS를 자체 함수로 처리하므로, 배포에서 이 백엔드가 맡는 것은 고정 IP가 필요한 UTIC뿐이다
+(docs/FRONTEND_INTEGRATION.md 5장). 나머지는 백엔드만으로 시험할 때·Vercel 밖에 배포할 때 쓴다.
 키는 백엔드 .env에만 두고 응답에 넣지 않는다 (UTIC 재생 페이지 주소는 UTIC 규격상 키를 포함한다).
 
 - /vworld/wmts/{경로}  : 브이월드 배경지도 타일 (VWORLD_KEY, 인증키에 등록한 서비스 URL을 Referer로)

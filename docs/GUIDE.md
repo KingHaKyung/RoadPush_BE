@@ -150,8 +150,8 @@ flowchart LR
   **백엔드도 HTTPS 주소**가 필요합니다. VM 앞에 리버스 프록시(Caddy 등)로 인증서를 붙이거나, HTTPS를 기본 제공하는 호스팅을 씁니다.
 - 백엔드 `.env`: `DATABASE_URL`(Supabase), `CORS_ORIGINS`에 `https://road-push-fe.vercel.app` 포함(기본값에 들어 있음)
 - 프론트 Vercel 환경 변수: `VITE_API_BASE_URL=https://<백엔드 주소>/api/v1`
-- 지도·CCTV: 백엔드가 `/vworld/wmts`, `/api/utic/player`, `/api/its/*`를 처리하고 프론트 `vercel.json` rewrites로 넘깁니다.
-  **UTIC는 등록 IP에서만 응답**하므로 배포 VM의 고정 공인 IP를 UTIC에 등록합니다 ([FRONTEND_INTEGRATION.md 5장](FRONTEND_INTEGRATION.md#5-배포테스트-url할-때)).
+- 지도·도로망·ITS CCTV는 프론트 Vercel 함수가 처리합니다. UTIC 영상만 고정 IP가 필요해 선택으로 백엔드에 넘깁니다.
+- 설치·HTTPS(Caddy)·자동 실행·확인 목록: **[DEPLOY.md](DEPLOY.md)**
 - 심사 기간(11월 중순까지) 내내 켜져 있어야 하므로 노트북 서버는 쓰지 않습니다. DeepLab v3+·YOLO11n은 CPU로도 장당 수 초라 큐 구조에서 충분합니다.
 - 심사위원이 바로 볼 수 있게 분석이 끝난 시연 데이터를 미리 넣어 둡니다 (`scripts/seed_demo.py --base https://<백엔드 주소>/api/v1` 또는 실제 사진 등록).
 

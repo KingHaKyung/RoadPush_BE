@@ -12,6 +12,11 @@ class Settings(BaseSettings):
     storage_dir: Path = Path("./storage")
     # 프론트 개발 서버 + Vercel 배포 주소
     cors_origins: list[str] = ["http://localhost:5173", "https://road-push-fe.vercel.app"]
+    # Vercel 미리보기 주소(road-push-fe-git-<브랜치>-….vercel.app)도 허용. 비우면 cors_origins만
+    cors_origin_regex: str = r"https://road-push-fe[a-z0-9-]*\.vercel\.app"
+    # 응답의 사진·overlay 주소 앞부분. 배포 서버에서 https 주소를 넣는다 (예: https://1-2-3-4.sslip.io)
+    # 비우면 요청 주소를 쓴다 (리버스 프록시 뒤에서는 http로 나와 HTTPS 페이지가 이미지를 막을 수 있음)
+    public_base_url: str = ""
     # 응답의 captured_at 표시 시간대 (DB는 UTC 저장)
     display_utc_offset_hours: int = 9
 

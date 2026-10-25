@@ -1,0 +1,9 @@
+# /etc/caddy/Caddyfile — 도메인 하나로 HTTPS 인증서를 자동 발급·갱신하고 백엔드로 넘긴다
+# DOMAIN 예: 1-2-3-4.sslip.io (VM 공인 IP 1.2.3.4) 또는 roadpush.duckdns.org
+{$DOMAIN} {
+	encode gzip
+	request_body {
+		max_size 50MB
+	}
+	reverse_proxy 127.0.0.1:8000
+}
