@@ -38,6 +38,16 @@ flowchart LR
 추천 순서: **Oracle Cloud 상시 무료**(ARM A1, Ubuntu 24.04) → 자리가 없으면 AMD 소형(1GB, 스왑 필요) → AWS 크레딧.
 가입 때 무료 한도와 고정 IP 조건을 확인하고, 카드 등록 시 예산 알림을 걸어 둡니다.
 
+Oracle Cloud로 만들 때:
+- **홈 리전**은 가입 때 한 번만 고릅니다 → 서울(ap-seoul-1) 또는 춘천(ap-chuncheon-1)
+- 인스턴스: Shape `VM.Standard.A1.Flex` **4 OCPU · 24GB**, 이미지 Canonical Ubuntu 24.04, SSH 키 내려받기
+- 공인 IP: Networking → Reserved Public IP를 만들어 VM에 붙입니다 (VM을 다시 만들어도 주소 유지)
+- `Out of host capacity`가 나오면 다른 가용 영역(AD)을 고르거나 시간을 두고 다시 시도합니다.
+  계속 안 되면 계정을 Pay As You Go로 바꾸면 자리가 잘 납니다 (상시 무료 한도 안에서는 과금되지 않음, 예산 알림 필수)
+
+ARM(aarch64)에서도 torch CPU 휠·ultralytics·opencv가 그대로 설치됩니다. CPU 추론이라 사진 1장 분석에 1~3분 걸릴 수 있고,
+분석은 워커 큐로 돌아 화면은 "AI 분석 대기 중"을 보이다가 결과로 바뀝니다.
+
 ## 3. 설치 순서 (Ubuntu 24.04, `ubuntu` 계정 기준)
 
 ### ① 포트 열기
@@ -54,16 +64,25 @@ VM 공인 IP가 `1.2.3.4`라면 **`1-2-3-4.sslip.io`** 를 그대로 씁니다 (
 이름을 고정하고 싶으면 DuckDNS 같은 무료 DNS에서 이름을 만들어 IP를 연결합니다.
 
 ### ③ 백엔드
+메모리 여유분으로 스왑 4GB를 먼저 만듭니다:
+```bash
+sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
 ```bash
 sudo apt update && sudo apt install -y python3.12-venv python3-pip git     # Ubuntu 24.04 기본 Python = 3.12
 git clone https://github.com/KingHaKyung/RoadPush_BE.git
-git clone https://github.com/<AI 저장소>/RoadPush_AI.git                     # BE와 나란히 (../RoadPush_AI)
 cd RoadPush_BE
 python3.12 -m venv .venv && . .venv/bin/activate
 pip install -U pip
-pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cpu   # 실제 모델 (CPU)
-pip install -e ".[ai]"                                                                          # 모델 없이 dummy면 pip install -e .
+pip install -e .                                                                                # dummy로 먼저 띄울 때는 여기까지
 cp .env.example .env && nano .env
+```
+실제 모델은 AI 코드·모델 파일을 올린 뒤(아래 ⑦) 설치합니다:
+```bash
+pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cpu   # ARM·x86 모두 CPU 휠
+pip install -e ".[ai]"
+pip install -e ../RoadPush_AI/surface_passability --no-deps
 ```
 `.env`에서 바꿀 값:
 ```
@@ -78,9 +97,7 @@ VWORLD_KEY=<브이월드 키>             # 행정구역·주소 자동 채우�
 VWORLD_DOMAIN=https://road-push-fe.vercel.app
 UTIC_API_KEY=<선택: UTIC 재생을 백엔드로 할 때>
 ```
-모델은 git에 없으므로 `scp`로 올립니다: `RoadPush_AI/surface_passability/models/`(Mask2Former 폴더·`yolo11n-seg.pt`),
-`RoadPush_AI/obstacle_yolo/weights/obstacle_yolo11s_full_os4.pt`. 올린 뒤 `python scripts/check_model.py <사진>`으로 점검합니다 ([SETUP.md 8장](SETUP.md#8-실제-모델-실행-roadpush_ai-팀-파이프라인)).
-AI Hub 데이터로 학습한 장애물 모델은 국외 반출 금지 조건이 있으므로 **국내 리전** 서버에 둡니다.
+처음에는 `ANALYSIS_ENGINE=dummy`로 띄워 프론트 연결까지 확인하고, 모델을 올린 뒤 `roadpush_ai`로 바꿉니다.
 비밀번호·키가 든 `.env`는 VM에만 둡니다.
 
 ### ④ 자동 실행 (systemd)
@@ -108,7 +125,30 @@ curl -s https://1-2-3-4.sslip.io/api/v1/health
 { "source": "/api/utic/:path*", "destination": "https://1-2-3-4.sslip.io/api/utic/:path*" }
 ```
 
-### ⑦ 시연 데이터
+### ⑦ AI 코드·모델 올리기
+서버에는 AI 저장소를 clone하지 않고 **실행에 필요한 파일만** 복사합니다 (`.git`·인증 정보가 서버에 없음).
+PC(`C:\dev`)에서 묶습니다. 모델은 AI 저장소 `models/`·`weights/`(Git 제외)에 먼저 넣어 둡니다:
+```powershell
+cd C:\dev
+tar -czf roadpush_ai.tgz --exclude=__pycache__ `
+  RoadPush_AI/surface_passability/src RoadPush_AI/surface_passability/pyproject.toml `
+  RoadPush_AI/surface_passability/README.md RoadPush_AI/surface_passability/manifests `
+  RoadPush_AI/surface_passability/models `
+  RoadPush_AI/obstacle_yolo/service RoadPush_AI/obstacle_yolo/configs RoadPush_AI/obstacle_yolo/weights
+scp -i <SSH 키> roadpush_ai.tgz ubuntu@<공인 IP>:~
+```
+서버에서 풀고 패키지를 설치한 뒤(위 ③의 실제 모델 설치) 점검합니다:
+```bash
+cd ~ && tar -xzf roadpush_ai.tgz                       # ~/RoadPush_AI (BE와 나란히)
+cd RoadPush_BE && . .venv/bin/activate
+python scripts/check_model.py                          # 모델 파일·SHA-256·장애물 클래스
+python scripts/check_model.py <사진>                    # 사진 1장 Phase 6 → 7-A → 7-B → 원인
+```
+같은 사진을 PC에서도 돌려 `outputs/check_model/<사진>/`의 7-B 결과를 비교합니다 (ARM·x86 CPU 차이 확인).
+그다음 `.env`를 `ANALYSIS_ENGINE=roadpush_ai`로 바꾸고 `sudo systemctl restart roadpush`.
+AI Hub 데이터로 학습한 장애물 모델은 국외 반출 금지 조건이 있으므로 **국내 리전** 서버에 둡니다.
+
+### ⑧ 시연 데이터
 ```bash
 python scripts/seed_demo.py --base https://1-2-3-4.sslip.io/api/v1
 ```
@@ -121,6 +161,8 @@ python scripts/seed_demo.py --base https://1-2-3-4.sslip.io/api/v1
 - [ ] 상세 화면의 사진·overlay가 보임 (주소가 `https://`로 시작 → `PUBLIC_BASE_URL`)
 - [ ] 처리 상태·검수·메모를 바꾸고 새로고침해도 유지
 - [ ] VM을 재부팅해도 백엔드·Caddy가 다시 뜸
+- [ ] (실제 모델) `/api/v1/health`의 `analysis_engine`이 `roadpush_ai`, 사진 1장이 "분석 대기"에서 결과로 바뀜 — 걸린 시간·`free -h` 기록
+- [ ] (실제 모델) 같은 사진의 7-B 결과가 PC와 서버에서 같음 (ARM·x86 차이 확인)
 - [ ] 휴대폰(다른 네트워크)에서도 열림
 
 ## 5. 주의
