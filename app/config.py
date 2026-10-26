@@ -22,13 +22,13 @@ class Settings(BaseSettings):
 
     # 분석 엔진: dummy(모델 없이 흐름 확인, 심사용 결과로 쓰지 않음) | roadpush_ai(RoadPush_AI 팀 파이프라인)
     analysis_engine: str = "dummy"
-    # RoadPush_AI/surface_passability 폴더 (src/roadpush_ai, models/ — Git 제외). Phase 6 → 7-A → 7-B
-    roadpush_ai_root: Path = Path("../RoadPush_AI/surface_passability")
+    # RoadPush_AI 저장소 폴더 (src/roadpush_ai, surface_passability/src, configs/). 통합 RoadPushAnalyzer
+    roadpush_ai_root: Path = Path("../RoadPush_AI")
+    # AI 모델 폴더 (surface_passability/, obstacle_detection/ — Git 제외). 비우면 ROADPUSH_AI_ROOT/models
+    roadpush_model_root: Path | None = None
     # Mask2Former 실행 장치. AI 팀 결과 재현 기준은 cpu (cuda는 결과가 조금 달라질 수 있음)
     semantic_device: str = "cpu"
-    # RoadPush_AI/obstacle_yolo 폴더 (service/config.yaml, weights/). 비우면 원인 배지 없이 통행 폭만
-    obstacle_yolo_root: Path | None = Path("../RoadPush_AI/obstacle_yolo")
-    # 장애물 원인 모델 장치: auto(GPU 있으면 GPU) | cuda | cpu
+    # 장애물 원인 모델(YOLO11s) 장치: auto(GPU 있으면 GPU) | cuda | cpu
     device: str = "auto"
     # 7-B 실폭 판정 입력(선택). 구간 보도 폭(sites.sidewalk_width_m)과 함께 있어야 m 단위 판정을 한다
     # 없으면 7-B는 relative_only → 백엔드 상대폭 기준(passability/rules.py Policy)으로 통과·좁아짐·단절을 나눈다

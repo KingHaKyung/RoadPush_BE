@@ -13,10 +13,8 @@ def run_analysis(storage: LocalStorage, ana: Analysis, obs: Observation) -> None
     out = pipeline.analyze(
         storage.path(obs.original_key),
         obs.media_type,
-        # AI 중간 마스크. 자동 재시도마다 새 폴더 (AI 계약: 기존 결과 폴더를 덮어쓰지 않는다)
+        # 이번 시도 전용 폴더 (영상의 분석 프레임). 자동 재시도마다 새 폴더 (AI 계약: 기존 output을 덮어쓰지 않는다)
         work_dir=storage.path(f"{base}/ai/attempt-{ana.attempts}"),
-        # semantic 캐시는 관측 폴더에 둔다 → 재분석이 빠르고, 관측을 지우면 같이 지워진다
-        cache_dir=storage.path(f"observations/{obs.id}/semantic"),
         storage_root=storage.root,
         sample_id=obs.id,
         reference_width_m=obs.site.sidewalk_width_m,

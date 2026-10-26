@@ -57,15 +57,15 @@ flowchart TD
 
 ### AI 분석 모듈 안 (`ANALYSIS_ENGINE=roadpush_ai`)
 
-RoadPush_AI 저장소의 코드를 그대로 부릅니다. 백엔드는 단계를 잇고(`roadpush.py`) 결과를 판정으로 바꿉니다(`passability/phase7.py`).
+RoadPush_AI 통합 진입점 `RoadPushAnalyzer`를 그대로 부릅니다(`roadpush.py`). 백엔드는 응답을 판정으로 바꿉니다(`passability/phase7.py`).
 
 ```mermaid
 flowchart LR
-    F["사진<br/>(영상이면 가운데 프레임)"] --> M["Mask2Former Swin-L<br/>Mapillary semantic<br/>(관측별 캐시)"]
+    F["사진<br/>(영상이면 가운데 프레임)"] --> M["Mask2Former Swin-L<br/>Mapillary semantic<br/>(사진 hash 캐시)"]
     M --> P6["Phase 6<br/>보도·차도 후처리<br/>장애물 ownership (YOLO11n-seg)<br/>걸을 면 선택"]
-    P6 --> P7A["Phase 7-A<br/>양쪽 경계 V6 → S1 연장<br/>→ 검증 → 등급"]
+    P6 --> P7A["Phase 7-A<br/>양쪽 경계 직선 적합 → S1 연장<br/>→ 검증 → 등급"]
     P7A --> P7B["Phase 7-B<br/>연결 통로 DAG<br/>3행 병목 비율 (+ 실폭)"]
-    P6 --> CA["원인 (obstacle_yolo)<br/>blocker 덩어리 × YOLO11s 박스<br/>→ 처리 유형 A~D"]
+    P7B --> CA["원인 (YOLO11s)<br/>선택 보행면 blocker × 탐지 박스<br/>→ 처리 유형 A~D"]
     P7B --> J{"authoritative?"}
     J -- "아님 (검토·측정 불가)" --> U["판단 유보 + 사유"]
     J -- 예 --> R["통과 / 좁아짐 / 단절<br/>+ 상대 위험도 + 근거 이미지"]
@@ -96,13 +96,13 @@ app/
   services/            관측 처리·AI 호출·저장/조회 (worker, analysis, views, exif, storage, nodelink)
   ai_engine/           분석 (DB를 모름)
     pipeline.py        AI 모듈 진입점 (ANALYSIS_ENGINE: roadpush_ai | dummy)
-    roadpush.py        RoadPush_AI roadpush_ai 연결: Phase 6 → 7-A → 7-B (사진 1장)
-    causes.py          RoadPush_AI obstacle_yolo 연결: 장애물 원인 → 원인 배지·처리 유형
+    roadpush.py        RoadPush_AI RoadPushAnalyzer 호출 (사진 1장 → 통합 응답 + overlay용 mask)
+    causes.py          AI 응답 surface_obstacles → 원인 배지·처리 유형
     passability/       7-B 결과 → 판정(phase7) · 상대 위험도(risk) · overlay · dummy 규칙(rules)
     surface/ scene.py  dummy 엔진 (가짜 장면, 영상 프레임 융합)
   db/                  DB 연결·테이블 정의(models.py)
 migrations/            DB 스키마 변경 이력 (Alembic) → DB.md
-model_weights/         (사용 안 함) 모델은 RoadPush_AI 저장소 models/·weights/ (Git 제외)
+model_weights/         (사용 안 함) 모델은 RoadPush_AI 저장소 models/ (Git 제외)
 storage/               서비스 원본·mask·overlay (Git 제외)
 data/                  학습·평가 자료 (Git 제외, 표준노드링크 예시만 포함)
 scripts/               analyze_folder.py (일괄 분석·보정) · seed_demo.py (시연 데이터)
@@ -114,14 +114,14 @@ docs/
 
 | 역할 | 모델 (RoadPush_AI) | 위치·설정 |
 |---|---|---|
-| 노면 semantic | Mask2Former Swin-L Mapillary Vistas | `ROADPUSH_AI_ROOT/models/mask2former_swin_large_mapillary/`, `SEMANTIC_DEVICE=cpu`(AI 팀 기준) |
-| 차량 instance (Phase 6 조건부) | YOLO11n-seg | `ROADPUSH_AI_ROOT/models/yolo11n-seg.pt` (CPU) |
-| 장애물 원인 | YOLO11s `obstacle_v2_yolo11s_full_os4` (vehicle·construction·debris·micromobility) | `OBSTACLE_YOLO_ROOT/service/config.yaml`(임계값·imgsz 640·SHA-256), `DEVICE=auto` |
+| 노면 semantic | Mask2Former Swin-L Mapillary Vistas | `ROADPUSH_AI_ROOT/models/surface_passability/semantic/`, `SEMANTIC_DEVICE=cpu`(AI 팀 기준) |
+| 차량 instance (7-B 점유 보강, 조건부) | YOLO11n-seg | `ROADPUSH_AI_ROOT/models/surface_passability/yolo11n-seg.pt` (CPU) |
+| 장애물 원인 | YOLO11s `obstacle_v2_yolo11s_full_os4` (vehicle·construction·debris·micromobility) | `ROADPUSH_AI_ROOT/models/obstacle_detection/`, 설정 `configs/obstacle_detection.yaml`(임계값·imgsz 640·SHA-256), `DEVICE=auto` |
 | 연결 확인 | dummy | `ANALYSIS_ENGINE=dummy` (기본값). 모델 없이 API·프론트 확인 |
 
-- 모델·가중치는 Git에 없습니다 (AI 저장소 `models/`·`weights/`). 설치·점검: [SETUP.md 8장](SETUP.md#8-실제-모델-실행-roadpush_ai-팀-파이프라인), `python scripts/check_model.py 사진.jpg`
+- 모델·가중치는 Git에 없습니다 (AI 저장소 `models/`, 다른 곳이면 `ROADPUSH_MODEL_ROOT`). 설치·점검: [SETUP.md 8장](SETUP.md#8-실제-모델-실행-roadpush_ai-팀-파이프라인), `python scripts/check_model.py 사진.jpg`
 - `roadpush_ai`는 Python 3.12 · torch 2.7.1 기준입니다 (AI 저장소 requirements와 같은 버전을 `pyproject.toml`의 `ai`에 고정).
-- 걸리는 시간은 CPU 기준 Mask2Former Swin-L 추론 + Phase 7-A 경계 적합이 대부분입니다. 7-A만 사진 1장에 수십 초가 걸릴 수 있어
+- 걸리는 시간: AI 팀 측정 사진 1장 평균 GPU 2.3초 · CPU 3.4초 (RTX 5070 Ti Laptop, 160장). 첫 사진은 모델을 올리느라 더 걸립니다.
   심사 전 시연 데이터는 미리 분석해 둡니다. 분석은 큐로 돌아 화면이 멈추지 않습니다.
 
 ## 5. 공모전 제출물과 백엔드가 맡을 일

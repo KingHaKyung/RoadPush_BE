@@ -3,9 +3,9 @@ AI 분석 모듈 진입점. 입력(사진·영상·설정) → 결과(판정·�
 DB·파일 저장·구간 연결은 백엔드 서비스(app/services)가 맡는다 (마스터 문서 3장).
 
 ANALYSIS_ENGINE
-  roadpush_ai  RoadPush_AI 팀 파이프라인 (심사·서비스용)
+  roadpush_ai  RoadPush_AI 통합 파이프라인 RoadPushAnalyzer (심사·서비스용, roadpush.py)
                사진 → Mask2Former semantic → Phase 6 보도/차도 선택 → Phase 7-A 경계 → Phase 7-B 연결 통로 폭
-               → (선택) 모델 팀 장애물 원인 → 백엔드 판정 (passability/phase7.py)
+               → 장애물 YOLO11s 원인 (선택 surface 접점만) → 백엔드 판정 (passability/phase7.py)
   dummy        모델 없이 등록 → 분석 → 지도 → 검수 흐름 확인용 가짜 장면 + 백엔드 임시 규칙 (passability/rules.py)
 """
 
@@ -18,6 +18,7 @@ import numpy as np
 from ..config import get_settings
 from . import imageio
 from .passability.overlay import (
+    cause_overlay,
     image_quality,
     passage_overlay,
     phase7_passage_overlay,
@@ -31,6 +32,8 @@ from .surface import load_dummy
 from .types import SceneResult
 
 NIGHT_BRIGHTNESS = 50
+# 근거(evidence.selection)에 남길 Phase 6 선택 요약
+SELECTION_KEYS = ("input_profile", "state", "selected_surface", "fallback", "reasons")
 
 
 class InputError(Exception):
@@ -47,7 +50,7 @@ class EngineOutput:
     model_version: str
     rule_version: str
     images: dict[str, np.ndarray] = field(default_factory=dict)  # class_map, surface_overlay, obstacle_overlay
-    evidence: dict = field(default_factory=dict)  # 엔진별 근거 (roadpush_ai: phase7b 기록·원인·버전·멱등 key)
+    evidence: dict = field(default_factory=dict)  # 엔진별 근거 (roadpush_ai: 7-B 기록·원인·버전·멱등 key)
     frames: int = 1
 
 
@@ -79,7 +82,6 @@ def analyze(
     media_type: str,
     *,
     work_dir: Path,
-    cache_dir: Path,
     storage_root: Path,
     sample_id: str,
     reference_width_m: float | None = None,
@@ -88,7 +90,7 @@ def analyze(
     policy: Policy | None = None,
 ) -> EngineOutput:
     """
-    분석 1건. work_dir는 이번 실행 전용의 새 폴더 (roadpush_ai 중간 마스크를 남긴다)
+    분석 1건. work_dir는 이번 실행 전용 폴더 (영상이면 분석할 가운데 프레임을 여기에 쓴다)
     precomputed_mask(통합 라벨 PNG)는 dummy 규칙으로만 분석한다 (모델 없이 규칙 확인용)
     """
     engine = get_settings().analysis_engine
@@ -100,7 +102,6 @@ def analyze(
         Path(path),
         media_type,
         work_dir=Path(work_dir),
-        cache_dir=Path(cache_dir),
         storage_root=Path(storage_root),
         sample_id=sample_id,
         reference_width_m=reference_width_m,
@@ -114,7 +115,6 @@ def run_roadpush(
     media_type: str,
     *,
     work_dir: Path,
-    cache_dir: Path,
     storage_root: Path,
     sample_id: str,
     reference_width_m: float | None = None,
@@ -130,22 +130,25 @@ def run_roadpush(
     photo = path
     if media_type != "image":
         # AI 파이프라인은 사진 1장 단위다. 영상은 가운데 프레임을 사진으로 분석한다
-        photo = work_dir.with_name(f"{work_dir.name}-frame.png")
+        work_dir.mkdir(parents=True, exist_ok=True)
+        photo = work_dir / "frame.png"
         imageio.imwrite(photo, frames[len(frames) // 2])
 
     run7 = roadpush.run_photo(
         photo,
-        work_dir,
         sample_id=sample_id,
-        cache_dir=cache_dir,
         storage_root=storage_root,
         input_profile=input_profile,
-        surface_width_m=reference_width_m,
+        # AI 요청 계약: 실폭은 양수만 (0·음수는 입력 오류). 없으면 상대폭만
+        surface_width_m=reference_width_m if reference_width_m and reference_width_m > 0 else None,
         agent_width_m=s.agent_width_m,
         safety_factor=s.safety_factor,
     )
-    record = run7.record
-    res = phase7.to_result(record, policy, run7.selection)
+    payload = run7.payload
+    surface = payload["surface"]
+    record = surface["passability"]
+    selection = {k: surface["surface_selection"].get(k) for k in SELECTION_KEYS}
+    res = phase7.to_result(record, policy, selection)
 
     quality = image_quality(run7.image_bgr)
     if res.verdict == "undetermined" and quality["brightness"] < NIGHT_BRIGHTNESS:
@@ -153,60 +156,68 @@ def run_roadpush(
         res.reasons.insert(0, f"저조도 영상 (평균 밝기 {quality['brightness']})")
     score, risk_detail = risk_score(res)
 
-    authoritative = record.get("result_authority") == "authoritative"
-    cause = cause_model.attribute(photo, run7.blocker_path, authoritative=authoritative)
+    cause = cause_model.from_response(payload["surface_obstacles"])
 
     img = run7.image_bgr
-    surface = run7.structural if run7.structural is not None else run7.phase6_structural
-    blocked = run7.occupancy if run7.occupancy is not None else run7.phase6_blocker
+    shape = img.shape[:2]
     images = {
         "class_map": run7.labels.astype(np.uint8),
-        "surface_overlay": phase7_surface_overlay(img, surface, blocked),
+        "surface_overlay": phase7_surface_overlay(img, _fit(run7.structural, shape), _fit(run7.occupancy, shape)),
     }
     if res.verdict != "undetermined":
-        base = cause.overlay if cause is not None and cause.overlay is not None else img
+        # 원인 덩어리(components)는 7-B 점유 기준이라 같은 mask 위에 그린다
+        base = cause_overlay(img, _fit(run7.occupancy, shape), cause.components, cause.obstacles)
         images["obstacle_overlay"] = phase7_passage_overlay(base, record)
 
-    versions = dict(run7.versions)
-    model_version = f"{versions['semantic']} + yolo11n-seg"
-    if cause is not None:
-        versions["obstacle_cause"] = f"{cause.version}/{cause.policy}"
-        model_version += f" + {cause.version}"
+    diagnostics = payload.get("diagnostics") or {}
+    obstacle_model = diagnostics.get("obstacle_model") or {}
+    semantic = surface["semantic"]
+    versions = {
+        "response": payload["schema_version"],
+        "semantic": f"{semantic['model'].get('profile_id')}@{semantic.get('requested_device')}",
+        "phase7a": surface["boundary"]["policy_id"],
+        "phase7b": record.get("schema_version"),
+        "obstacle_cause": f"{obstacle_model.get('version')}/{cause.policy}",
+    }
     evidence = {
         "engine": "roadpush_ai",
+        # AI 원본 응답 response.to_dict() 전체 (surface·surface_obstacles·diagnostics). 아래 키는 자주 쓰는 부분
+        "response": payload,
         "phase7b": record,
-        "selection": run7.selection,
-        "v6": run7.v6,
-        "phase7a": run7.phase7a,
+        "selection": selection,
         "versions": versions,
         "image_sha256": run7.image_sha256,
         "idempotency_key": run7.idempotency_key,
         "input_profile": input_profile,
-        "semantic_inference_run": run7.semantic_inference_run,
-        "cause": (
-            {
-                "status": cause.status,
-                "types": cause.types,
-                "auto_routable": cause.auto_routable,
-                "components": cause.components,
-                "detections": cause.detections,
-            }
-            if cause is not None
-            else None
-        ),
+        "semantic_inference_run": bool(semantic.get("inference_run")),
+        "cause": {
+            "status": cause.status,
+            "types": cause.types,
+            "auto_routable": cause.auto_routable,
+            "components": cause.components,
+            "obstacles": cause.obstacles,
+            "policy": cause.policy,
+        },
     }
     return EngineOutput(
         result=res,
         risk=score,
         risk_detail=risk_detail,
-        causes=cause.causes if cause is not None else [],
+        causes=cause.causes,
         quality=quality,
-        model_version=model_version,
+        model_version=f"{versions['semantic']} + yolo11n-seg + {obstacle_model.get('version')}",
         rule_version=f"{record.get('schema_version')}/{phase7.POLICY_VERSION}",
         images=images,
         evidence=evidence,
         frames=len(frames),
     )
+
+
+def _fit(mask: np.ndarray | None, shape: tuple[int, int]) -> np.ndarray | None:
+    """overlay용 mask. 분석 크기와 다르면(선택 surface 없음 등) 그리지 않는다"""
+    if mask is None or mask.shape != shape:
+        return None
+    return np.asarray(mask, dtype=bool)
 
 
 # ── dummy 엔진 (모델 없이 흐름 확인) ──────────────────────────────────────────

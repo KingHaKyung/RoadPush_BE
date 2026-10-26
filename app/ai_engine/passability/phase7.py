@@ -1,7 +1,7 @@
 """
 AI 팀 Phase 7-B 결과(phase7_b_result_v2) → 백엔드 판정 (통과 가능 / 좁아짐 / 단절·우회 필요 / 판단 유보).
 
-AI 계약(RoadPush_AI docs/PHASE7B_PRODUCTION_LOGIC.md 4·5·7장)의 소비 규칙을 그대로 따른다.
+AI 계약(RoadPush_AI docs/PRODUCTION_SYSTEM.md 10~12장)의 소비 규칙을 그대로 따른다.
 - 자동 판정은 result_authority=authoritative 이고 대표 비율(minimum_passable_ratio)이 있을 때만
 - provisional_review(ambiguous_hold)는 판정·위험도·집계에 쓰지 않는다 → 판단 유보(사람 검토), 가계산은 근거에만
 - raw_minimum_passable_ratio로 상태를 정하지 않는다. null을 0으로 바꾸지 않는다
@@ -59,6 +59,19 @@ def _stats(record: dict, selection: dict | None) -> dict:
         "abstention_reasons": list(record.get("abstention_reasons") or []),
         "flags": list(record.get("flags") or []),
         "policy": POLICY_VERSION,
+    }
+
+
+def provisional_estimate(stats: dict | None, policy: Policy | None = None) -> dict | None:
+    """provisional_review의 검토용 가계산 (화면 참고용). 판정·위험도·집계에는 쓰지 않는다"""
+    stats = stats or {}
+    ratio = stats.get("minimum_passable_ratio")
+    if stats.get("result_authority") != "provisional_review" or ratio is None:
+        return None
+    return {
+        "passability": _relative_verdict(float(ratio), policy or Policy()),
+        "bottleneck_ratio": round(float(ratio), 3),
+        "occupancy": int(round(100 * (1 - float(ratio)))),
     }
 
 

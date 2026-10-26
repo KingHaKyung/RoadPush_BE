@@ -23,7 +23,7 @@
 |---|---|
 | API | Python 3.12, FastAPI, Pydantic |
 | DB | SQLAlchemy 2, Alembic 마이그레이션 · 로컬 SQLite / 배포 Supabase PostgreSQL |
-| AI 분석 | RoadPush_AI 팀 파이프라인을 그대로 사용: `roadpush_ai` (Mask2Former Mapillary → Phase 6 보도/차도 → 7-A 경계 → 7-B 연결 통로 폭) · `obstacle_yolo` (YOLO11s 장애물 원인 A~D) |
+| AI 분석 | RoadPush_AI 통합 파이프라인 `roadpush_ai.RoadPushAnalyzer`를 그대로 사용: Surface (Mask2Former Mapillary → Phase 6 보도/차도 → 7-A 경계 → 7-B 연결 통로 폭) → 장애물 YOLO11s (선택 보행면에 접한 탐지만 원인 A~D) |
 | 작업 처리 | DB 대기열 + 분석 워커 (제한 재시도) |
 | 품질 | pytest (SQLite·PostgreSQL), ruff |
 
@@ -85,7 +85,7 @@ app/
   db/             DB 연결 · 테이블 정의
 migrations/       DB 스키마 변경 이력 (Alembic)
 scripts/          seed_demo · check_db · analyze_folder
-model_weights/    (사용 안 함) 실제 모델은 RoadPush_AI 저장소 models/·weights/
+model_weights/    (사용 안 함) 실제 모델은 RoadPush_AI 저장소 models/
 storage/          원본·mask·overlay (Git 제외)
 data/             표준노드링크 예시 지역 GeoJSON
 docs/             가이드 문서
@@ -96,5 +96,5 @@ tests/
 
 - 도로 링크 참고: 국토교통부 표준노드링크 (성남시 분당구 예시 지역, 프론트 저장소와 같은 변환본)
 - 노면: [Mask2Former Swin-L Mapillary Vistas](https://huggingface.co/facebook/mask2former-swin-large-mapillary-vistas-semantic) (RoadPush_AI `manifests/model_assets_manifest.json`)
-- 장애물 원인: RoadPush_AI `obstacle_yolo` (YOLO11s, AI Hub 인도보행 영상 학습 — 국외 반출 금지) · Phase 6 차량 instance YOLO11n-seg
+- 장애물 원인: RoadPush_AI 장애물 모델 `obstacle_yolo11s_full_os4` (YOLO11s, AI Hub 인도보행 영상 학습 — 국외 반출 금지) · Phase 6 차량 instance YOLO11n-seg
 - [Ultralytics YOLO11](https://docs.ultralytics.com/) (AGPL-3.0) — 공개 서비스 전 라이선스 확인

@@ -155,14 +155,17 @@ npm run dev     # http://localhost:5173
 
 분석은 **RoadPush_AI 저장소의 코드를 그대로** 씁니다. 백엔드에는 모델·판정 규칙을 따로 두지 않습니다.
 
+백엔드는 AI 저장소의 통합 진입점 `roadpush_ai.RoadPushAnalyzer` 하나를 호출하고
+응답(`roadpush_analysis_response_v1`)을 소비합니다 (AI `docs/PRODUCTION_SYSTEM.md`).
+
 | 단계 | AI 저장소 | 하는 일 |
 |---|---|---|
-| Phase 6 | `surface_passability` (`roadpush_ai`) | Mask2Former(Mapillary) semantic → 보도·차도 후처리 → 걸어갈 면 선택 |
-| Phase 7-A | 〃 | 보행면 양쪽 경계 (V6 → S1 연장 → 검증 → 등급) |
+| Phase 6 | `surface_passability` | Mask2Former(Mapillary) semantic → 보도·차도 후보 → 걸어갈 면 선택 |
+| Phase 7-A | 〃 | 보행면 양쪽 경계 (직선 적합 → S1 연장 → 검증 → 등급) |
 | Phase 7-B | 〃 | 끊기지 않는 연결 통로의 3행 병목 비율 (+ 보도 실폭이 있으면 m 단위) |
-| 원인 | `obstacle_yolo` | 길을 막은 덩어리와 겹치는 탐지만 원인 (차량·공사시설·적치물·PM → 처리 유형 A~D) |
+| 원인 | `roadpush_ai` (장애물 YOLO11s) | 최종 7-B 폭 계산에 쓴 점유와 겹치는 탐지만 원인 (차량·공사시설·적치물·PM → 처리 유형 A~D) |
 
-백엔드 연결 코드: `app/ai_engine/roadpush.py`(단계 연결), `causes.py`(원인), `passability/phase7.py`(7-B 결과 → 판정).
+백엔드 연결 코드: `app/ai_engine/roadpush.py`(RoadPushAnalyzer 호출), `causes.py`(원인 → 배지), `passability/phase7.py`(7-B 결과 → 판정).
 판정 규칙과 AI 계약은 [PASSABILITY.md](PASSABILITY.md) 0장.
 
 ### 8-1. 폴더 배치
@@ -170,15 +173,18 @@ npm run dev     # http://localhost:5173
 ```
 C:/dev/
   RoadPush_BE/                  이 저장소
-  RoadPush_AI/
-    surface_passability/        src/roadpush_ai + models/ (Git 제외)
-      models/mask2former_swin_large_mapillary/
-      models/yolo11n-seg.pt
-    obstacle_yolo/              service/config.yaml + weights/obstacle_yolo11s_full_os4.pt (Git 제외)
+  RoadPush_AI/                  src/roadpush_ai · surface_passability/src · configs/obstacle_detection.yaml
+    models/                     (Git 제외, AI 팀 자산 묶음 v5 — 내용을 고치지 않음)
+      model_assets.json                              모델 4종 SHA-256·폴더 hash
+      surface_passability/semantic/                  Mask2Former Swin-L Mapillary (.cache 포함 그대로)
+      surface_passability/yolo11n-seg.pt             7-B 차량 instance
+      surface_passability/occupancy_evidence_v2/     승인된 7-B 점유 근거 (회귀 표본 3장, AI가 hash 일치 때만 사용)
+      obstacle_detection/obstacle_yolo11s_full_os4.pt 장애물 원인
+    experiments/                (선택, Git 제외) 전체 회귀·시각화 자료. 서비스 실행에는 필요 없음
 ```
-다른 위치에 두면 `.env`의 `ROADPUSH_AI_ROOT`, `OBSTACLE_YOLO_ROOT`를 바꿉니다.
-모델 파일은 AI 저장소 `manifests/model_assets_manifest.json`과 `obstacle_yolo/service/config.yaml`의 SHA-256으로 확인합니다
-(장애물 가중치는 서버가 켜질 때 자동 대조).
+다른 위치에 두면 `.env`의 `ROADPUSH_AI_ROOT`(저장소), `ROADPUSH_MODEL_ROOT`(모델 폴더)를 바꿉니다.
+`python scripts/check_model.py`가 AI 검증기(`roadpush_ai.assets`)로 `models/model_assets.json`의 SHA-256·폴더 hash를 대조합니다.
+`semantic/.cache`도 모델 hash에 들어가므로 지우지 않습니다. 장애물 가중치 SHA-256은 분석기를 만들 때도 확인합니다(`configs/obstacle_detection.yaml`).
 
 ### 8-2. Python 3.12 가상환경과 패키지
 
@@ -196,7 +202,9 @@ python -m pip install -U pip
 pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cpu     # CPU
 # pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cu128  # GPU
 pip install -e ".[ai,dev]"
-pip install -e ..\RoadPush_AI\surface_passability --no-deps      # 선택: 안 하면 ROADPUSH_AI_ROOT/src를 찾아 쓴다
+# 선택: 안 하면 ROADPUSH_AI_ROOT의 src·surface_passability/src를 찾아 쓴다
+pip install -e ..\RoadPush_AI --no-deps
+pip install -e ..\RoadPush_AI\surface_passability --no-deps
 ```
 `py` 런처가 없으면 [uv](https://docs.astral.sh/uv/)로 같은 환경을 만듭니다 (Python 3.12도 uv가 받아 줌):
 ```powershell
@@ -204,6 +212,7 @@ uv python install 3.12
 uv venv .venv312 --python 3.12
 uv pip install --python .venv312\Scripts\python.exe torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cu128
 uv pip install --python .venv312\Scripts\python.exe -e ".[ai,dev]"
+uv pip install --python .venv312\Scripts\python.exe -e ..\RoadPush_AI --no-deps
 uv pip install --python .venv312\Scripts\python.exe -e ..\RoadPush_AI\surface_passability --no-deps
 ```
 
@@ -211,29 +220,27 @@ uv pip install --python .venv312\Scripts\python.exe -e ..\RoadPush_AI\surface_pa
 
 ```
 ANALYSIS_ENGINE=roadpush_ai
-ROADPUSH_AI_ROOT=../RoadPush_AI/surface_passability
-OBSTACLE_YOLO_ROOT=../RoadPush_AI/obstacle_yolo
+ROADPUSH_AI_ROOT=../RoadPush_AI
+# ROADPUSH_MODEL_ROOT=     # 모델 폴더를 다른 곳에 두면 (기본: ROADPUSH_AI_ROOT/models)
 SEMANTIC_DEVICE=cpu        # AI 팀 결과 재현 기준. cuda는 빠르지만 결과가 조금 달라질 수 있음
 DEVICE=auto                # 장애물 원인 모델: GPU가 있으면 GPU
 # AGENT_WIDTH_M=0.9        # 선택: 구간 보도 폭이 있을 때 m 단위 판정 (없으면 상대폭 기준)
 # SAFETY_FACTOR=1.2
 ```
-- 장애물 가중치(`obstacle_yolo/weights/`)를 아직 못 받았으면 `OBSTACLE_YOLO_ROOT=`로 비웁니다. 폴더를 지정했는데 가중치가 없거나
-  SHA-256이 다르면 설정 오류로 보고 분석을 실패로 남깁니다 (원인 없이 조용히 넘어가지 않게).
-- `roadpush_ai`는 import될 때 GPU를 숨기도록 되어 있습니다 (AI 팀 CPU 기준). 백엔드가 그 전에 CUDA를 먼저 초기화하므로
-  장애물 모델은 `DEVICE`대로 GPU를 쓸 수 있습니다. Phase 6의 YOLO11n-seg는 AI 팀 설정대로 CPU에서 돕니다.
-- `STORAGE_DIR`·`ROADPUSH_AI_ROOT`는 **한글이 없는 경로**에 둡니다. AI 코드는 마스크를 `cv2.imread/imwrite`(문자열 경로)로 읽고 써서
-  Windows에서 경로에 한글(예: `바탕 화면`)이 있으면 실패합니다 ([TROUBLESHOOTING.md](TROUBLESHOOTING.md)의 한글 경로 문제와 같은 원인).
-- 걸리는 시간(CPU): Mask2Former Swin-L 추론 + Phase 7-A 경계 적합. 7-A만 사진 1장(긴 변 700px)에 수십 초 걸릴 수 있습니다.
-  분석은 워커 큐로 돌아서 화면은 "AI 분석 대기 중"을 보이다가 결과로 바뀝니다. 같은 관측을 재분석하면 semantic 캐시를 다시 씁니다.
+- 장애물 원인 모델은 통합 파이프라인의 일부라 따로 끌 수 없습니다. 모델 파일이 하나라도 없거나 SHA-256이 다르면
+  분석을 실패로 남깁니다 (원인 없이 조용히 넘어가지 않게). 장애물 단계만 실패하면(AI `status=partial`) 실행 오류로 재시도합니다.
+- 7-B의 차량 instance 모델(YOLO11n-seg)은 AI production 검증대로 CPU에서 돕니다 (`ROADPUSH_YOLO_DEVICE=cpu`를 백엔드가 기본으로 넣음).
+- semantic 캐시는 `STORAGE_DIR/ai/semantic_cache`에 둡니다 (사진 hash·모델 identity가 key). 같은 사진을 재분석하면 추론을 다시 하지 않습니다.
+- 걸리는 시간: AI 팀 측정(RTX 5070 Ti Laptop, 160장) 사진 1장 평균 GPU 2.3초 · CPU 3.4초. 첫 사진은 모델을 올리느라 더 걸립니다.
+  분석은 워커 큐로 돌아서 화면은 "AI 분석 대기 중"을 보이다가 결과로 바뀝니다.
 
 ### 8-4. 점검
 
 ```powershell
 python scripts/check_model.py              # 설치·모델 파일·장애물 클래스 → 원인 배지
-python scripts/check_model.py 보도사진.jpg  # 사진 1장 Phase 6 → 7-A → 7-B → 원인 (outputs/check_model/<사진>/)
+python scripts/check_model.py 보도사진.jpg  # 사진 1장 RoadPushAnalyzer → 판정·원인 (outputs/check_model/<사진>/)
 ```
-`evidence.json`에 7-B 기록 전체(`phase7_b_result_v2`)가, `obstacle_overlay.jpg`에 연결 통로·병목·원인 박스가 나옵니다.
+`evidence.json`에 7-B 기록 전체(`phase7_b_result_v2`)와 원인(`cause`)이, `obstacle_overlay.jpg`에 연결 통로·병목·원인 박스가 나옵니다.
 여러 장은 `python scripts/analyze_folder.py <폴더> --labels labels.csv --out outputs/x` (사진별 7-B 기록은 `phase7b.jsonl`).
 
 ## 9. 테스트
@@ -287,5 +294,5 @@ git push -u origin feat/짧은-설명              # GitHub에서 main으로 Pul
 | `422 captured_at에 시간대` | `2026-10-21T14:30:00+09:00`처럼 `+09:00` 붙이기 |
 | 실제 모델에서 `torch`·`roadpush_ai` 없음 | Python 3.12 가상환경인지 확인 → [8-2](#8-2-python-312-가상환경과-패키지), `python scripts/check_model.py` |
 | `torch.cuda.is_available()`이 False | CPU용 torch가 깔림 → `pip uninstall torch` 후 CUDA용 명령으로 다시 설치 |
-| 분석이 `ModelMissing`으로 실패 | AI 저장소 `models/`·`weights/`에 모델 파일이 없음 또는 장애물 가중치 SHA-256 불일치 → [8-1](#8-1-폴더-배치) |
+| 분석이 `ModelMissing`으로 실패 | AI 저장소 `models/`에 모델 파일이 없음 또는 SHA-256 불일치 (`python scripts/check_model.py`) → [8-1](#8-1-폴더-배치) |
 | DB를 초기화하고 싶음 | 서버 끄고 `data/roadpush.db`, `storage/` 삭제 (참조 레이어도 지워지므로 `scripts/load_reference.py`로 다시 넣기) |

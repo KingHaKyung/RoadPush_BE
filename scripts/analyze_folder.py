@@ -10,14 +10,13 @@ labels.csv (UTF-8) 열: file, label, sidewalk_width_m(선택)
     label: passable | narrowed | blocked | undetermined  (현장에서 사람이 판단한 값. AI에 맞춰 고치지 않는다)
 
 결과: <out>/results.csv, <out>/confusion.csv, <out>/overlays/<사진>_surface.jpg · <사진>_passage.jpg
-      roadpush_ai: <out>/work/<사진>/ (Phase 6 마스크), <out>/phase7b.jsonl (사진별 7-B 기록)
+      roadpush_ai: <out>/phase7b.jsonl (사진별 7-B 기록). semantic 캐시는 STORAGE_DIR/ai/semantic_cache
 보정용 장소와 최종 평가 장소는 폴더를 나눠 따로 돌린다 (마스터 문서 11장).
 """
 
 import argparse
 import csv
 import json
-import shutil
 import sys
 from collections import Counter
 from pathlib import Path
@@ -57,7 +56,6 @@ def main() -> None:
             labels = {row["file"]: row for row in csv.DictReader(f)}
 
     (args.out / "overlays").mkdir(parents=True, exist_ok=True)
-    shutil.rmtree(args.out / "work", ignore_errors=True)  # roadpush_ai는 실행마다 빈 작업 폴더가 필요하다
     phase7b = (args.out / "phase7b.jsonl").open("w", encoding="utf-8")
     rows, conf = [], Counter()
     for p in sorted(x for x in args.folder.iterdir() if x.suffix.lower() in EXT):
@@ -68,7 +66,6 @@ def main() -> None:
                 p,
                 "image",
                 work_dir=args.out / "work" / p.stem,
-                cache_dir=args.out / "_semantic_cache",
                 storage_root=args.out,
                 sample_id=p.stem,
                 reference_width_m=width,

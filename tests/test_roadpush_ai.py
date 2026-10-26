@@ -1,9 +1,9 @@
 """
-roadpush_ai 엔진 연결 (RoadPush_AI 팀 코드).
+roadpush_ai 엔진 연결 (RoadPush_AI 통합 파이프라인 RoadPushAnalyzer).
 - 7-B 결과 → 백엔드 판정 규칙 (AI 계약의 소비 규칙)
-- 합성 마스크로 실제 roadpush_ai Phase 7-A → 7-B 실행 (모델 없이. AI 저장소가 옆 폴더에 없으면 건너뜀)
-- 모델 팀 attach_cause 규칙 → 원인 배지
-- 파이프라인: 7-B 기록 → 판정·overlay·근거 (Phase 6 모델 실행만 가짜로 바꿈)
+- AI 접점 규칙(roadpush_ai/attribution.py) → 원인 배지
+- 파이프라인: 실제 AI 코드(Phase 6 → 7-A → 7-B → 접점 판정)를 합성 semantic 지도로 실행
+  (Mask2Former·YOLO 모델만 가짜. AI 저장소가 옆 폴더에 없으면 건너뜀)
 """
 
 import json
@@ -14,12 +14,12 @@ import cv2
 import numpy as np
 import pytest
 
-from app.ai_engine.passability.phase7 import to_result
+from app.ai_engine.passability.phase7 import provisional_estimate, to_result
 from app.ai_engine.passability.risk import risk_score
 from app.config import get_settings
 
-AI_SRC = Path(__file__).resolve().parents[2] / "RoadPush_AI" / "surface_passability" / "src"
-OBSTACLE_ROOT = Path(__file__).resolve().parents[2] / "RoadPush_AI" / "obstacle_yolo"
+AI_ROOT = Path(__file__).resolve().parents[2] / "RoadPush_AI"
+AI_SRC = (AI_ROOT / "src", AI_ROOT / "surface_passability" / "src")
 
 
 def _record(**kw) -> dict:
@@ -46,7 +46,7 @@ def _record(**kw) -> dict:
     return r
 
 
-# ── 7-B → 판정 (AI docs/PHASE7B_PRODUCTION_LOGIC.md 4·5·7장)
+# ── 7-B → 판정 (AI docs/PRODUCTION_SYSTEM.md 10~12장)
 
 
 def test_relative_only_uses_backend_ratio_policy_not_raw_minimum():
@@ -85,6 +85,9 @@ def test_provisional_review_is_never_a_verdict_or_risk():
     assert res.bottleneck_ratio is None and res.occupancy is None
     assert risk_score(res)[0] is None  # 집계·우선순위에 넣지 않는다
     assert any("검토용 가계산" in r and "20%" in r for r in res.reasons)
+    # 화면에는 '추정 (검토 필요)'로만 보인다: 확정 판정이 아님
+    assert provisional_estimate(res.stats) == {"passability": "blocked", "bottleneck_ratio": 0.2, "occupancy": 80}
+    assert provisional_estimate(to_result(_record(minimum_passable_ratio=0.9)).stats) is None
 
 
 def test_typed_null_maps_abstention_reason_without_zero():
@@ -113,182 +116,231 @@ def test_zero_ratio_is_blocked_and_partial_scope_is_noted():
     assert res.verdict == "passable" and any("앞부분만" in r for r in res.reasons)
 
 
-# ── 실제 roadpush_ai 7-A → 7-B (합성 마스크)
-
-
-def _synthetic_phase6(root: Path, obstacle: bool = True):
-    """
-    사다리꼴 보도 + 가운데 장애물. Phase 6이 sidewalk에 저장하는 파일 이름으로 쓴다.
-    실제 분석 크기(긴 변 700px)의 절반: V6 경계 적합이 행 수에 비례해 느려서 (700px 합성 1장 약 40초, CPU)
-    """
-    h, w = 263, 350
-    structural = np.zeros((h, w), bool)
-    for y in range(60, h):
-        t = (y - 60) / (h - 60)
-        structural[y, int(w * (0.42 - 0.30 * t)) : int(w * (0.58 + 0.30 * t))] = True
-    blocker = np.zeros_like(structural)
-    if obstacle:
-        blocker[165:210, 100:165] = True
-        blocker &= structural
-    labels = np.full((h, w), 17, np.uint8)  # Mapillary building
-    labels[structural] = 15  # sidewalk
-    labels[blocker] = 55  # car
-    d = root / "phase6" / "sidewalk"
-    d.mkdir(parents=True)
-    cv2.imwrite(str(d / "07_proposed_pruned_boundary.png"), structural.astype(np.uint8) * 255)
-    cv2.imwrite(str(d / "08_applied_blocker.png"), blocker.astype(np.uint8) * 255)
-    return labels, blocker
+# ── AI 접점 규칙 → 원인 배지
 
 
 @pytest.fixture
-def roadpush():
-    if not (AI_SRC / "roadpush_ai").is_dir():
+def ai_code():
+    if not (AI_ROOT / "src" / "roadpush_ai" / "analyzer.py").is_file():
         pytest.skip("RoadPush_AI 저장소가 옆 폴더에 없음")
     pytest.importorskip("scipy")
     # conftest가 ROADPUSH_AI_ROOT(모델·캐시 위치)를 임시 폴더로 돌려 두었으므로 코드 위치만 직접 넣는다
-    if str(AI_SRC) not in sys.path:
-        sys.path.insert(0, str(AI_SRC))
+    for src in AI_SRC:
+        if str(src) not in sys.path:
+            sys.path.insert(0, str(src))
     from app.ai_engine import roadpush
 
     roadpush.prepare_runtime()
     return roadpush
 
 
-NO_WIDTHS = {"surface_width_m": None, "agent_width_m": None, "safety_factor": None}
+def _detection(i: int, cls: str, kind: str, box: tuple[float, float, float, float]):
+    from roadpush_ai.obstacle import ObstacleDetection
+
+    return ObstacleDetection(i, cls, cls, kind, "", 0.9, box)
 
 
-def test_measure_runs_real_phase7a_and_7b(tmp_path, roadpush):
-    labels, blocker = _synthetic_phase6(tmp_path)
-    selection = {"selected_surface": "sidewalk", "state": "sidewalk", "reasons": []}
-    widths = {**NO_WIDTHS, "surface_width_m": 2.0}
-    m = roadpush.measure("syn", selection, labels, tmp_path / "phase6", {"sidewalk": None}, widths)
-    rec = m.record  # compose_phase7_b_result 안에서 validate_phase7_b_record를 통과한 기록
-    assert rec["schema_version"] == "phase7_b_result_v2"
-    assert rec["phase7a_policy_id"] == "phase7_extension_track_s1_v4_probe_human_review_grading"
-    assert rec["result_authority"] == "authoritative" and rec["measurement_confidence"] == "reliable"
-    ratio = rec["minimum_passable_ratio"]
-    assert 0 < ratio < 1  # 가운데 장애물이 통로를 줄인다
-    assert rec["absolute_passable_width_m"] == pytest.approx(2.0 * ratio)
-    assert rec["passability_state"] == "relative_only"  # 통행 폭(agent) 입력 없음
-    assert m.blocker_path.name == "08_applied_blocker.png"
-    assert m.occupancy is not None and (m.occupancy & blocker).sum() == blocker.sum()
+def test_ai_attribution_maps_to_cause_badges(ai_code):
+    from roadpush_ai.attribution import attribute_detections
 
-    cleaned = roadpush._relative(rec, tmp_path)
-    text = json.dumps(cleaned)  # DB JSON에 들어간다
-    assert str(tmp_path) not in text and str(tmp_path).replace("\\", "\\\\") not in text  # 로컬 경로를 내지 않는다
-    assert cleaned["diagnostics"]["phase7a"]["provenance"]["phase6_blocker_path"] == (
-        "phase6/sidewalk/08_applied_blocker.png"
-    )
-
-    clear = roadpush.measure(
-        "clear",
-        selection,
-        _synthetic_phase6(tmp_path / "clear", obstacle=False)[0],
-        tmp_path / "clear" / "phase6",
-        {"sidewalk": None},
-        NO_WIDTHS,
-    )
-    assert clear.record["minimum_passable_ratio"] > ratio
-
-
-def test_measure_surface_uncertain_is_typed_null(tmp_path, roadpush):
-    labels, _ = _synthetic_phase6(tmp_path)
-    selection = {"selected_surface": None, "state": "uncertain_none", "reasons": ["no_surface"]}
-    m = roadpush.measure("none", selection, labels, tmp_path / "phase6", {}, NO_WIDTHS)
-    assert m.record["result_authority"] == "none" and m.record["minimum_passable_ratio"] is None
-    assert m.blocker_path is None and m.structural is None
-    assert to_result(m.record).uncertainty_code == "surface_uncertain"
-
-
-# ── 모델 팀 원인 규칙 (attach_cause.attribute) → 원인 배지
-
-
-def test_attach_cause_rule_maps_to_cause_badges():
-    if not (OBSTACLE_ROOT / "service" / "attach_cause.py").is_file():
-        pytest.skip("RoadPush_AI/obstacle_yolo가 옆 폴더에 없음")
-    pytest.importorskip("ultralytics")
     from app.ai_engine import causes
 
-    ac = causes._service_module(OBSTACLE_ROOT)
     blocker = np.zeros((100, 100), bool)
     blocker[60:80, 10:30] = True  # 차량 바닥
     blocker[60:70, 60:90] = True  # 클래스 없는 물체
-    det = {"name_ko": "", "type": "C", "action": "", "confidence": 0.9}
-    dets = [
-        {**det, "class": "vehicle", "box_analysis": [8, 20, 32, 80]},
-        {**det, "class": "micromobility", "type": "A", "box_analysis": [0, 0, 5, 5]},  # 길을 막지 않는 탐지
-    ]
-    status, comps, _, used = ac.attribute(blocker, dets)
-    assert status == "partially_attributed" and used == {0}
+    dets = (
+        _detection(0, "vehicle", "C", (8, 20, 32, 80)),
+        _detection(1, "micromobility", "A", (0, 0, 5, 5)),  # 길을 막지 않는 탐지
+    )
+    res = attribute_detections(blocker, dets, original_size=(100, 100), analysis_size=(100, 100))
+    assert res.status == "partially_attributed" and res.matched_detection_ids == (0,)
+    comps = list(res.components)
     assert causes.badges(comps) == ["차량"]
-    unclassified = [c for c in comps if not c["causes"]]
-    assert causes.badges(unclassified) == ["장애물"]
+    assert causes.badges([c for c in comps if not c["causes"]]) == ["장애물"]
     assert causes.badges([]) == []
 
 
-# ── 파이프라인: 7-B 기록 → 판정·overlay·근거
+# ── 파이프라인: 실제 AI 코드 + 합성 semantic 지도 → 판정·overlay·근거
+
+
+def _synthetic_labels(w: int, h: int, obstacle: bool = True) -> np.ndarray:
+    """사다리꼴 보도 + 가운데 차량 (Mapillary 라벨: 15 sidewalk, 17 building, 27 sky, 55 car)"""
+    top = int(h * 0.23)
+    labels = np.full((h, w), 17, np.uint8)
+    labels[:top] = 27
+    for y in range(top, h):
+        t = (y - top) / (h - top)
+        labels[y, int(w * (0.42 - 0.30 * t)) : int(w * (0.58 + 0.30 * t))] = 15
+    if obstacle:
+        car = np.zeros((h, w), bool)
+        car[int(h * 0.63) : int(h * 0.8), int(w * 0.29) : int(w * 0.47)] = True
+        labels[car & (labels == 15)] = 55
+    return labels
+
+
+CAR_BOX = (0.27, 0.55, 0.49, 0.82)  # 원본 대비 비율 (x0, y0, x1, y1)
+
+
+class FakeSemantic:
+    """Mask2Former 대신 합성 지도를 낸다 (AI SemanticEvidence 계약 그대로)"""
+
+    def __init__(self, obstacle: bool = True):
+        self.obstacle = obstacle
+
+    def provide(self, prepared):
+        from surface_passability.contracts.semantic import SemanticEvidence, SemanticModelIdentity
+
+        w, h = prepared.analysis_size
+        z = "0" * 64
+        return SemanticEvidence(
+            class_map=_synthetic_labels(w, h, self.obstacle),
+            native_size=prepared.original_size,
+            analysis_size=(w, h),
+            native_array_sha256=z,
+            analysis_array_sha256=z,
+            cache_key="synthetic",
+            cache_path=Path("synthetic.png"),
+            cache_file_sha256=z,
+            cache_hit=True,
+            inference_run=False,
+            inference_metadata=None,
+            cache_reuse_policy="synthetic",
+            requested_device="cpu",
+            producer_provenance={},
+            model=SemanticModelIdentity("synthetic", "synthetic", z, z, z, z, z, 65),
+        )
+
+
+class NoVehicleModel:
+    def get_model(self):
+        raise AssertionError("합성 장면에서는 차량 instance 모델이 필요 없어야 한다")
+
+
+class FakeDetector:
+    """장애물 YOLO11s 대신 차량 박스 1개 (+ 길 밖 PM 1개)"""
+
+    def __init__(self, fail: bool = False):
+        self.fail = fail
+
+    def detect(self, native_rgb):
+        from roadpush_ai.obstacle import ObstacleDetectionResult
+
+        if self.fail:
+            raise RuntimeError("CUDA out of memory")
+        h, w = native_rgb.shape[:2]
+        x0, y0, x1, y1 = CAR_BOX
+        dets = (
+            _detection(0, "vehicle", "C", (x0 * w, y0 * h, x1 * w, y1 * h)),
+            _detection(1, "micromobility", "A", (0.0, 0.0, w * 0.05, h * 0.05)),
+        )
+        return ObstacleDetectionResult(w, h, "fake_obstacle_v0", "f" * 64, "cpu", 1.0, dets)
 
 
 @pytest.fixture
-def fake_engine(tmp_path, roadpush, monkeypatch):
-    """roadpush_ai 엔진 모드 + Mask2Former·Phase 6만 합성 결과로 바꾼다 (7-A·7-B는 실제 AI 코드). 호출 인자를 모은다"""
-    labels, _ = _synthetic_phase6(tmp_path / "ai")
-    selection = {"selected_surface": "sidewalk", "state": "sidewalk", "reasons": []}
-    calls: list[dict] = []
+def fake_models(ai_code, monkeypatch):
+    """roadpush_ai 엔진 모드. 모델(Mask2Former·YOLO)만 가짜로 바꾸고 AI 코드는 실제로 돈다. 요청을 모은다"""
+    from roadpush_ai import RoadPushAnalyzer
+    from surface_passability import PipelineDependencies, SurfacePassabilityAnalyzer
 
-    def fake_run_photo(image_path, work_dir, **kw):
-        calls.append({"image_path": Path(image_path), "work_dir": Path(work_dir), **kw})
-        Path(work_dir).mkdir(parents=True, exist_ok=False)  # 실제처럼 재시도마다 새 폴더여야 한다
-        widths = {k: kw[k] for k in NO_WIDTHS}
-        m = roadpush.measure(kw["sample_id"], selection, labels, tmp_path / "ai" / "phase6", {"sidewalk": None}, widths)
-        return roadpush.Phase7Run(
-            record=roadpush._relative(m.record, tmp_path),
-            image_bgr=np.full((*labels.shape, 3), 120, np.uint8),
-            labels=labels,
-            selection=selection,
-            v6=m.v6,
-            phase7a=m.phase7a,
-            structural=m.structural,
-            occupancy=m.occupancy,
-            phase6_structural=m.phase6_structural,
-            phase6_blocker=m.phase6_blocker,
-            blocker_path=m.blocker_path,
-            image_sha256="0" * 64,
-            idempotency_key=roadpush.idempotency_key("0" * 64, "image_upload", widths, m.occupancy_source, "p"),
-            versions={"semantic": "mask2former_swin_large_mapillary@cpu", "phase7b": "phase7_b_result_v2"},
+    roadpush = ai_code
+    calls: list = []
+
+    def install(obstacle: bool = True, fail: bool = False):
+        deps = PipelineDependencies(
+            semantic_provider=FakeSemantic(obstacle),
+            vehicle_model_provider=NoVehicleModel(),
+            class_names={i: f"class_{i}" for i in range(65)},
+        )
+        surface = SurfacePassabilityAnalyzer(dependencies=deps)
+        original = surface.analyze_photo_with_evidence
+
+        def recording(request):
+            calls.append(request)
+            return original(request)
+
+        surface.analyze_photo_with_evidence = recording
+        capture = roadpush._CapturingSurface(surface)
+        monkeypatch.setattr(roadpush, "_capture", capture)
+        monkeypatch.setattr(
+            roadpush, "_analyzer", RoadPushAnalyzer(surface_analyzer=capture, obstacle_detector=FakeDetector(fail))
         )
 
-    monkeypatch.setattr(roadpush, "run_photo", fake_run_photo)
+    install()
     monkeypatch.setattr(get_settings(), "analysis_engine", "roadpush_ai")
-    monkeypatch.setattr(get_settings(), "obstacle_yolo_root", None)  # 원인 모델 없이
-    return calls
+    return calls, install
 
 
-def test_pipeline_roadpush_engine_end_to_end(tmp_path, fake_engine):
+def _photo(tmp_path: Path, w: int = 350, h: int = 263) -> Path:
+    photo = tmp_path / "photo.png"
+    cv2.imwrite(str(photo), np.full((h, w, 3), 128, np.uint8))
+    return photo
+
+
+def test_pipeline_roadpush_engine_end_to_end(tmp_path, fake_models):
     from app.ai_engine import pipeline
 
-    photo = tmp_path / "photo.jpg"
-    cv2.imwrite(str(photo), np.full((60, 80, 3), 128, np.uint8))
-    out = pipeline.analyze(
-        photo, "image", work_dir=tmp_path / "w", cache_dir=tmp_path / "c", storage_root=tmp_path, sample_id="obs_1"
-    )
+    calls, _ = fake_models
+    out = pipeline.analyze(_photo(tmp_path), "image", work_dir=tmp_path / "w", storage_root=tmp_path, sample_id="obs_1")
+    rec = out.evidence["phase7b"]
+    assert rec["schema_version"] == "phase7_b_result_v2" and rec["result_authority"] == "authoritative"
+    assert 0 < rec["minimum_passable_ratio"] < 1  # 가운데 차량이 통로를 줄인다
     assert out.result.verdict in ("passable", "narrowed", "blocked")
-    assert out.result.bottleneck_ratio == round(out.evidence["phase7b"]["minimum_passable_ratio"], 3)
-    assert out.risk is not None and out.causes == []
+    assert out.result.bottleneck_ratio == round(rec["minimum_passable_ratio"], 3)
+    assert out.risk is not None
+    # 원인: 선택 보도의 blocker와 겹친 차량만. 길 밖 PM은 진단(all_detections)에만 남는다
+    assert out.causes == ["차량"]
+    cause = out.evidence["cause"]
+    assert cause["types"] == ["C"] and cause["auto_routable"] is True
+    assert [o["class"] for o in cause["obstacles"]] == ["vehicle"]
+    # AI 원본 응답 전체를 보관한다 (surface · surface_obstacles · diagnostics)
+    resp = out.evidence["response"]
+    assert resp["schema_version"] == "roadpush_analysis_response_v1" and resp["status"] == "complete"
+    assert set(resp) >= {"surface", "surface_obstacles", "diagnostics"}
+    assert resp["surface"]["passability"] == rec
+    assert len(resp["diagnostics"]["all_detections"]) == 2  # 사진 전체 탐지 (길 밖 PM 포함)
     assert out.rule_version.startswith("phase7_b_result_v2/")
     assert set(out.images) == {"class_map", "surface_overlay", "obstacle_overlay"}
-    assert out.images["obstacle_overlay"].shape == (263, 350, 3)  # 분석 크기 (합성 Phase 6과 같음)
-    assert fake_engine[0]["input_profile"] == "image_upload" and fake_engine[0]["surface_width_m"] is None
-    assert out.evidence["engine"] == "roadpush_ai" and out.evidence["cause"] is None
-    json.dumps(out.evidence)  # analyses.evidence(JSON)에 그대로 저장된다
+    assert out.images["obstacle_overlay"].shape == (263, 350, 3)  # 분석 크기
+    assert calls[0].input_profile == "image_upload" and calls[0].surface_width_m is None
+    assert out.evidence["engine"] == "roadpush_ai" and len(out.evidence["idempotency_key"]) == 64
+    text = json.dumps(out.evidence, allow_nan=False)  # analyses.evidence(JSON)에 그대로 저장된다
+    assert str(tmp_path) not in text and str(tmp_path).replace("\\", "\\\\") not in text  # 로컬 경로를 내지 않는다
 
 
-def test_worker_saves_phase7_result_through_api(fake_engine):
+def test_pipeline_without_obstacle_is_wider(tmp_path, fake_models):
+    from app.ai_engine import pipeline
+
+    _, install = fake_models
+    blocked = pipeline.analyze(_photo(tmp_path), "image", work_dir=tmp_path / "a", storage_root=tmp_path, sample_id="a")
+    install(obstacle=False)
+    clear = pipeline.analyze(_photo(tmp_path), "image", work_dir=tmp_path / "b", storage_root=tmp_path, sample_id="b")
+    assert clear.evidence["phase7b"]["minimum_passable_ratio"] > blocked.evidence["phase7b"]["minimum_passable_ratio"]
+    assert clear.causes == [] and clear.evidence["cause"]["status"] == "no_blocker"
+
+
+def test_obstacle_stage_failure_is_a_runtime_error(tmp_path, fake_models):
+    from app.ai_engine import pipeline
+
+    _, install = fake_models
+    install(fail=True)  # AI는 status=partial을 낸다 → 원인 없는 결과를 저장하지 않고 재시도 대상으로
+    with pytest.raises(RuntimeError, match="장애물 원인 단계 실패"):
+        pipeline.analyze(_photo(tmp_path), "image", work_dir=tmp_path / "w", storage_root=tmp_path, sample_id="x")
+
+
+def test_missing_models_raise_model_missing(ai_code, monkeypatch):
+    monkeypatch.setattr(ai_code, "_analyzer", None)
+    # conftest: ROADPUSH_AI_ROOT는 빈 임시 폴더 → models/가 없다
+    with pytest.raises(ai_code.ModelMissing, match="semantic"):
+        ai_code.get_analyzer()
+
+
+def test_worker_saves_result_through_api(fake_models):
     from fastapi.testclient import TestClient
 
     from app.main import app
     from app.services import worker
 
+    calls, _ = fake_models
     api = "/api/v1"
     jpg = cv2.imencode(".jpg", np.full((360, 480, 3), 128, np.uint8))[1].tobytes()
     with TestClient(app) as c:
@@ -302,10 +354,9 @@ def test_worker_saves_phase7_result_through_api(fake_engine):
         ]
         while worker.run_once():
             pass
-        call = fake_engine[-1]
-        assert call["sample_id"] == oid and call["input_profile"] == "cctv"
-        assert call["surface_width_m"] == 2.4  # 구간 보도 폭 → 7-B 실폭
-        assert call["work_dir"].as_posix().endswith("/ai/attempt-1")
+        req = calls[-1]
+        assert req.sample_id == oid and req.input_profile == "cctv"
+        assert req.surface_width_m == 2.4  # 구간 보도 폭 → 7-B 실폭
 
         got = c.get(f"{api}/observations/{oid}").json()
         assert got["processing_status"] == "completed", got
@@ -323,6 +374,4 @@ def test_unknown_engine_is_rejected(tmp_path, monkeypatch):
 
     monkeypatch.setattr(get_settings(), "analysis_engine", "selectstar")
     with pytest.raises(ValueError, match="ANALYSIS_ENGINE"):
-        pipeline.analyze(
-            tmp_path / "x.jpg", "image", work_dir=tmp_path, cache_dir=tmp_path, storage_root=tmp_path, sample_id="x"
-        )
+        pipeline.analyze(tmp_path / "x.jpg", "image", work_dir=tmp_path, storage_root=tmp_path, sample_id="x")

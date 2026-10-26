@@ -63,5 +63,5 @@ def health():
     return {
         "status": "ok",
         "analysis_engine": settings.analysis_engine,
-        "obstacle_causes": settings.analysis_engine == "roadpush_ai" and bool(settings.obstacle_yolo_root),
+        "obstacle_causes": settings.analysis_engine == "roadpush_ai",
     }

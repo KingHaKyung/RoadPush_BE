@@ -71,6 +71,24 @@ def phase7_surface_overlay(img: np.ndarray, surface: np.ndarray | None, blocked:
     return out
 
 
+def cause_overlay(img: np.ndarray, blocker: np.ndarray | None, components: list[dict], obstacles: list[dict]):
+    """roadpush_ai: 7-B 점유 덩어리(원인 있음 빨강·미분류 노랑 테두리)와 접점한 장애물 박스(주황)"""
+    out = img.copy()
+    if blocker is not None and blocker.any():
+        painted = cv2.addWeighted(out, 0.5, np.full_like(out, (40, 40, 220)), 0.5, 0)
+        out[blocker] = painted[blocker]
+    for comp in components:
+        if not comp.get("causes"):
+            x0, y0, x1, y1 = (int(v) for v in comp["bbox_analysis_xyxy"])
+            cv2.rectangle(out, (x0, y0), (x1, y1), (0, 220, 255), 1)
+    for ob in obstacles:
+        x0, y0, x1, y1 = (int(round(v)) for v in ob["box_analysis_xyxy"])
+        cv2.rectangle(out, (x0, y0), (x1, y1), (0, 140, 255), 2)
+        label = f"{ob['class']} {ob['confidence']:.2f}"
+        cv2.putText(out, label, (x0, max(12, y0 - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 140, 255), 1, cv2.LINE_AA)
+    return out
+
+
 def phase7_passage_overlay(img: np.ndarray, record: dict) -> np.ndarray:
     """roadpush_ai: 7-B가 고른 연결 통로(초록)와 3행 병목(노랑). 원인 overlay(덩어리·박스) 위에 덧그려도 된다"""
     out = img.copy()

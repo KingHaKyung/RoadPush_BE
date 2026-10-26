@@ -10,7 +10,7 @@
 
 ## 0. AI 팀 Phase 7-B 결과 → 판정 (`phase7.py`, `phase7-consumer-2026.10`)
 
-AI 계약: RoadPush_AI `surface_passability/docs/PHASE7B_PRODUCTION_LOGIC.md` (4·5·7장). 백엔드는 **값을 다시 계산하지 않고 소비 규칙만** 적용합니다.
+AI 계약: RoadPush_AI `docs/PRODUCTION_SYSTEM.md` (10~12장). 백엔드는 **값을 다시 계산하지 않고 소비 규칙만** 적용합니다.
 
 | 7-B 결과 | 판정 | 위험도·통로 비율 | 유보 코드 |
 |---|---|---|---|
@@ -25,24 +25,25 @@ AI 계약: RoadPush_AI `surface_passability/docs/PHASE7B_PRODUCTION_LOGIC.md` (4
 - `bottleneck_m_est` = `absolute_passable_width_m` (구간 `sidewalk_width_m`이 있을 때). `effective_blocked_width_m`는 장애물 폭이 아니라서 화면에 내지 않습니다.
 - `.env`에 `AGENT_WIDTH_M`(예: 휠체어 0.9)·`SAFETY_FACTOR`(예: 1.2)를 넣고 구간 보도 폭이 있으면 7-B가 m 단위로 통과·좁아짐·단절을 냅니다.
 - `confidence`는 비웁니다. AI는 수치 대신 등급(`measurement_confidence`)을 내며 `evidence.stats`에 남습니다.
-- 원인 배지는 모델 팀 `obstacle_yolo/service/attach_cause.py` 규칙(`phase6_blocker_overlap_v1`) 그대로입니다.
-  길을 막은 blocker 덩어리와 겹친 탐지만 원인이고, 클래스가 없는 덩어리만 있으면 `장애물`입니다.
-  민원 자동 전달 가능 여부(`evidence.cause.auto_routable`) = 원인이 있고 authoritative.
+- 원인 배지는 AI 통합 응답 `surface_obstacles` 그대로입니다 (`roadpush_ai/attribution.py`, `phase7b_occupancy_overlap_v2`: 최종 7-B 폭 계산에 쓴 점유와 겹친 탐지만).
+  최종 7-B 폭 계산에 쓴 점유 덩어리와 겹친 탐지만 원인이고, 클래스가 없는 덩어리만 있으면 `장애물`입니다.
+  민원 자동 전달 가능 여부(`evidence.cause.auto_routable`) = 원인이 있고 authoritative (AI가 계산).
+- 장애물 단계만 실패한 응답(`status = partial`)은 원인 없이 저장하지 않고 실행 오류로 재시도합니다.
 
 ### 근거 (`analyses.evidence`, roadpush_ai)
 
 | 키 | 내용 |
 |---|---|
-| `phase7b` | 7-B 기록 전체 (`phase7_b_result_v2`). 로컬 경로는 저장소 기준 상대 경로로 바꿈 |
-| `selection`·`v6`·`phase7a` | Phase 6 surface 선택, V6 분류, 7-A S1 상태·사유 |
-| `cause` | 원인 판정 상태·덩어리별 원인·탐지 박스·`auto_routable` |
-| `versions`·`idempotency_key`·`image_sha256` | 모델·정책 버전, AI 계약 5장 멱등 key |
-| 파일 | `analyses/<id>/ai/attempt-N/phase6/` (Phase 6 마스크. 재시도마다 새 폴더), `observations/<id>/semantic/` (semantic 캐시) |
+| `response` | AI 원본 응답 `response.to_dict()` 전체 (`roadpush_analysis_response_v1`: `surface`·`surface_obstacles`·`diagnostics`) |
+| `phase7b` | 7-B 기록 전체 (`phase7_b_result_v2`, 응답 `surface.passability`). 로컬 경로는 저장소 기준 상대 경로로 바꿈 |
+| `selection` | Phase 6 surface 선택 요약 |
+| `cause` | `surface_obstacles` 상태·덩어리별 원인·접점 탐지 박스·`auto_routable` |
+| `versions`·`idempotency_key`·`image_sha256` | 응답·모델·정책 버전, AI 문서 12장 멱등 key |
+| 파일 | semantic 캐시 `STORAGE_DIR/ai/semantic_cache` (사진 hash·모델 identity가 key). 영상은 `analyses/<id>/ai/attempt-N/frame.png` |
 
 ### 새 사진 처리 방식
-- 새 사진의 7-A는 `Phase7AAdapter.reconstruct()`와 같은 순서(V6 → S1-A → V4c+Banner → V4 probe 등급)로 계산합니다 (`roadpush.measure()`).
-  고정 160장과 달리 저장된 결정이 없으므로 hash 대조 단계만 빠집니다.
-- V6 장애물 실루엣은 `retry_v4.py`에 적힌 출처대로 Mapillary `OCCUPANCY + HAZARD` 클래스로 만듭니다 (`roadpush.py` `_obstacle_silhouette`).
+- 백엔드는 단계를 직접 잇지 않고 AI 통합 진입점 `RoadPushAnalyzer.analyze_photo()`를 한 번 부릅니다 (`roadpush.run_photo()`).
+- AI 공개 응답에는 mask가 없어서, overlay용 mask는 같은 실행의 Surface in-memory 근거에서 받습니다 (다시 계산하지 않음).
 
 ---
 

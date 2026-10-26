@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from ..ai_engine.passability.phase7 import provisional_estimate
 from ..api.schemas import (
     ACTION_LABEL,
     PASS_LABEL,
@@ -139,6 +140,7 @@ def observation_out(obs: Observation, url: FileUrl, action: Action | None = None
         risk_complete=bool(risk.get("complete")),
         causes=ana.causes if done else [],
         uncertainty_code=ana.uncertainty_code if done else None,
+        provisional=provisional_estimate((ana.evidence or {}).get("stats")) if done else None,
         confidence=ana.confidence if done else None,
         reasons=(ana.evidence or {}).get("reasons", []) if done else [],
         analysis_trigger=ana.trigger if ana else None,

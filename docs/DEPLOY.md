@@ -82,6 +82,7 @@ cp .env.example .env && nano .env
 ```bash
 pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cpu   # ARM·x86 모두 CPU 휠
 pip install -e ".[ai]"
+pip install -e ../RoadPush_AI --no-deps
 pip install -e ../RoadPush_AI/surface_passability --no-deps
 ```
 `.env`에서 바꿀 값:
@@ -89,8 +90,7 @@ pip install -e ../RoadPush_AI/surface_passability --no-deps
 DATABASE_URL=postgresql+psycopg://postgres.<ref>:<비밀번호>@<pooler 호스트>.pooler.supabase.com:5432/postgres?sslmode=require
 PUBLIC_BASE_URL=https://1-2-3-4.sslip.io
 ANALYSIS_ENGINE=roadpush_ai         # 모델을 넣기 전에는 dummy (심사용 결과로 쓰지 않음)
-ROADPUSH_AI_ROOT=../RoadPush_AI/surface_passability
-OBSTACLE_YOLO_ROOT=../RoadPush_AI/obstacle_yolo
+ROADPUSH_AI_ROOT=../RoadPush_AI
 SEMANTIC_DEVICE=cpu
 DEVICE=cpu
 VWORLD_KEY=<브이월드 키>             # 행정구역·주소 자동 채우기
@@ -127,14 +127,14 @@ curl -s https://1-2-3-4.sslip.io/api/v1/health
 
 ### ⑦ AI 코드·모델 올리기
 서버에는 AI 저장소를 clone하지 않고 **실행에 필요한 파일만** 복사합니다 (`.git`·인증 정보가 서버에 없음).
-PC(`C:\dev`)에서 묶습니다. 모델은 AI 저장소 `models/`·`weights/`(Git 제외)에 먼저 넣어 둡니다:
+PC(`C:\dev`)에서 묶습니다. 모델은 AI 저장소 `models/`(Git 제외)에 먼저 넣어 둡니다:
 ```powershell
 cd C:\dev
 tar -czf roadpush_ai.tgz --exclude=__pycache__ `
+  RoadPush_AI/src RoadPush_AI/pyproject.toml RoadPush_AI/configs RoadPush_AI/schemas `
   RoadPush_AI/surface_passability/src RoadPush_AI/surface_passability/pyproject.toml `
-  RoadPush_AI/surface_passability/README.md RoadPush_AI/surface_passability/manifests `
-  RoadPush_AI/surface_passability/models `
-  RoadPush_AI/obstacle_yolo/service RoadPush_AI/obstacle_yolo/configs RoadPush_AI/obstacle_yolo/weights
+  RoadPush_AI/surface_passability/manifests RoadPush_AI/surface_passability/schemas `
+  RoadPush_AI/models
 scp -i <SSH 키> roadpush_ai.tgz ubuntu@<공인 IP>:~
 ```
 서버에서 풀고 패키지를 설치한 뒤(위 ③의 실제 모델 설치) 점검합니다:
@@ -142,7 +142,7 @@ scp -i <SSH 키> roadpush_ai.tgz ubuntu@<공인 IP>:~
 cd ~ && tar -xzf roadpush_ai.tgz                       # ~/RoadPush_AI (BE와 나란히)
 cd RoadPush_BE && . .venv/bin/activate
 python scripts/check_model.py                          # 모델 파일·SHA-256·장애물 클래스
-python scripts/check_model.py <사진>                    # 사진 1장 Phase 6 → 7-A → 7-B → 원인
+python scripts/check_model.py <사진>                    # 사진 1장 RoadPushAnalyzer → 판정·원인
 ```
 같은 사진을 PC에서도 돌려 `outputs/check_model/<사진>/`의 7-B 결과를 비교합니다 (ARM·x86 CPU 차이 확인).
 그다음 `.env`를 `ANALYSIS_ENGINE=roadpush_ai`로 바꾸고 `sudo systemctl restart roadpush`.

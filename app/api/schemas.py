@@ -57,6 +57,14 @@ class HistoryItem(BaseModel):
     by: str | None = None
 
 
+class ProvisionalEstimate(BaseModel):
+    """판단 유보(boundary_review) 건의 AI 검토용 가계산. 확정 판정이 아니며 위험도·집계에 쓰지 않는다"""
+
+    passability: Literal["passable", "narrowed", "blocked"]
+    bottleneck_ratio: float
+    occupancy: int
+
+
 class ObservationOut(BaseModel):
     # ── 마스터 문서 4.4 공통 분석 응답 ──
     observation_id: str
@@ -86,6 +94,9 @@ class ObservationOut(BaseModel):
     risk_complete: bool = Field(False, description="false면 길이 항 측정 불가 → 폭 항만 반영한 부분 상대 지표")
     causes: list[str] = []
     uncertainty_code: str | None = None
+    provisional: ProvisionalEstimate | None = Field(
+        None, description="uncertainty_code=boundary_review일 때 검토용 추정 (사람 확인 필요, 확정 판정 아님)"
+    )
     confidence: float | None = None
     reasons: list[str] = []
     analysis_trigger: str | None = None

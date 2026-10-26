@@ -145,6 +145,8 @@ sequenceDiagram
   "causes": ["차량"],                         // 차량·공사시설·적치물·PM (시각 클래스 4개. 상태를 단정하지 않음)
   "uncertainty_code": null,                  // roadpush_ai: surface_uncertain | boundary_review | boundary_failed | occupancy_unverified | low_coverage | night
                                              // dummy: occluded | mixed | low_coverage | low_confidence | night  (PASSABILITY.md)
+  "provisional": null,                       // boundary_review일 때만 검토용 추정 {passability, bottleneck_ratio, occupancy}
+                                             // 확정 판정 아님: '추정 (사람 확인 필요)'로만 보이고 지도 색·집계에 쓰지 않는다
   "confidence": null,                        // roadpush_ai는 null (등급은 GET …/analyses의 evidence.stats.measurement_confidence). dummy는 0~1
   "reasons": ["남은 연속 통로가 가장 좁은 곳에서 보도 폭의 55% (상대폭 기준: 통과 ≥ 60%, 단절 < 30%) · 보도 실폭 기준 약 1.32m"],
   "analysis_trigger": "initial",             // initial | reanalysis
@@ -153,7 +155,7 @@ sequenceDiagram
   "review": null,                            // { id, analysis_id, status, human_passability, comment, reviewer, created_at }
   "action": { "action_id": null, "state": "none", "label": "미처리", "dept": null },
   "history": [{ "t": "2026-10-21T11:56:14+09:00", "txt": "AI 분석 완료 · 좁아짐 (상대 위험도 55)", "ai": true, "by": null }],
-  "model_version": "mask2former_swin_large_mapillary@cpu + yolo11n-seg + obstacle_v2_yolo11s_full_os4",
+  "model_version": "mask2former_mapillary_swin_large@cpu + yolo11n-seg + obstacle_v2_yolo11s_full_os4",
   "rule_version": "phase7_b_result_v2/phase7-consumer-2026.10"   // dummy: rules-2026.10-b/policy-2026.10-draft
 }
 ```

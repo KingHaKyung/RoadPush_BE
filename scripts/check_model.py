@@ -2,13 +2,14 @@
 AI 팀 모델을 넣은 뒤 서버를 켜기 전에 점검한다. DB·서버 없이 AI 모듈만 돌린다.
 
     python scripts/check_model.py                 # 설치·모델 파일만 점검
-    python scripts/check_model.py 사진.jpg        # 실제 사진 1장을 Phase 6 → 7-A → 7-B → 원인까지 분석
+    python scripts/check_model.py 사진.jpg        # 실제 사진 1장을 RoadPushAnalyzer로 분석 (7-B → 원인까지)
 
 확인하는 것
 1. Python·torch·CUDA (roadpush_ai는 Python 3.12)
-2. RoadPush_AI 위치와 모델 파일 (ROADPUSH_AI_ROOT/models, OBSTACLE_YOLO_ROOT/weights + SHA-256)
+2. RoadPush_AI 위치와 모델 파일 (ROADPUSH_AI_ROOT/models: surface_passability/, obstacle_detection/)
+   SHA-256은 분석기를 만들 때 AI 코드가 확인한다
 3. 장애물 모델 클래스 → 원인 배지 (labels.CAUSE_OF). 매핑이 없는 클래스는 배지가 나오지 않는다
-4. 사진 한 장 분석 결과·걸린 시간 → outputs/check_model/<사진>/ 에 overlay·7-B 기록 저장
+4. 사진 한 장 분석 결과·걸린 시간 → outputs/check_model/<사진>/ 에 overlay·근거 저장
 """
 
 import argparse
@@ -32,7 +33,7 @@ def main() -> None:
     args = ap.parse_args()
     os.environ["ANALYSIS_ENGINE"] = "roadpush_ai"  # 이 스크립트는 AI 팀 엔진을 점검한다
 
-    from app.ai_engine import causes, imageio, pipeline, roadpush
+    from app.ai_engine import imageio, pipeline, roadpush
     from app.ai_engine.labels import cause_of
     from app.config import get_settings
 
@@ -55,41 +56,49 @@ def main() -> None:
         sys.exit('[X] torch가 없습니다 → docs/SETUP.md 8장 (pip install -e ".[ai]")')
 
     print("\n── 2. RoadPush_AI 위치·모델")
-    print(f"ROADPUSH_AI_ROOT={s.roadpush_ai_root.resolve()}")
+    print(f"ROADPUSH_AI_ROOT={roadpush.ai_root()} · 모델 {roadpush.model_root()}")
+    roadpush.prepare_runtime()
     try:
-        files = roadpush.model_files()
         import roadpush_ai
+        import surface_passability
 
-        print(f"[OK] roadpush_ai {roadpush_ai.__version__} ({Path(roadpush_ai.__file__).parent})")
+        print(f"[OK] roadpush_ai ({Path(roadpush_ai.__file__).parent})")
+        print(f"[OK] surface_passability ({Path(surface_passability.__file__).parent})")
     except ImportError as e:
-        sys.exit(
-            f"[X] roadpush_ai를 불러오지 못했습니다: {e} → ROADPUSH_AI_ROOT 또는 pip install -e <AI 폴더> --no-deps"
-        )
+        sys.exit(f"[X] AI 코드를 불러오지 못했습니다: {e} → ROADPUSH_AI_ROOT 또는 pip install -e <AI 저장소> --no-deps")
     missing = False
-    for name, p in files.items():
+    for name, p in roadpush.model_files().items():
         print(f"{'[OK]' if p.exists() else '[X] 없음'} {name}: {p}")
         missing |= not p.exists()
     if missing:
-        print("   → AI 모델 파일(models/)을 ROADPUSH_AI_ROOT 아래에 넣습니다")
+        print("   → AI 모델 파일(models/)을 ROADPUSH_AI_ROOT/models (또는 ROADPUSH_MODEL_ROOT) 아래에 넣습니다")
+    else:
+        # AI 저장소 검증기(roadpush-verify-models): models/model_assets.json의 SHA-256·폴더 hash와 대조 (읽기만 함)
+        os.environ.setdefault("ROADPUSH_ROOT", str(roadpush.ai_root()))
+        os.environ.setdefault("ROADPUSH_MODEL_ROOT", str(roadpush.model_root()))
+        try:
+            from roadpush_ai.assets import main as verify_models
 
-    print("\n── 3. 장애물 원인 모델 (OBSTACLE_YOLO_ROOT)")
+            verify_models()
+        except Exception as e:  # hash 불일치·파일 누락
+            missing = True
+            print(f"[X] 모델 무결성 확인 실패: {e} → AI 팀 자산 묶음을 다시 받아 models/를 교체")
+
+    print("\n── 3. 장애물 원인 모델 (RoadPush_AI configs/obstacle_detection.yaml)")
     try:
-        st = causes.load()
-    except Exception as e:  # 가중치 없음·SHA-256 불일치
-        st = None
-        print(f"[X] {e}")
-    if st is None and not s.obstacle_yolo_root:
-        print("OBSTACLE_YOLO_ROOT가 비어 있음 → 원인 배지 없이 통행 폭만 분석")
-    elif st is not None:
-        imgsz = st["cfg"]["model"]["imgsz"]
-        print(f"[OK] {st['version']} · SHA-256 {st['sha256'][:12]}… · imgsz {imgsz} · {st['device']}")
-        for i, name in st["model"].names.items():
-            c = st["cls_cfg"].get(name, {})
+        from roadpush_ai.obstacle import ObstacleSettings
+
+        st = ObstacleSettings.load(runtime_root=roadpush.ai_root(), model_root=roadpush.model_root())
+        device = roadpush.resolve_device(s.device)
+        print(f"[OK] {st.model_version} · SHA-256 {st.model_sha256[:12]}… · imgsz {st.image_size} · {device}")
+        for name, c in st.classes.items():
             badge = cause_of(name)
             print(
-                f"   {i} {name:<14} → {badge or '[!] 배지 없음 (labels.CAUSE_OF에 추가)'}"
-                f" · 처리 {c.get('type', '?')} {c.get('action', '')} · conf {c.get('conf', '?')}"
+                f"   {name:<14} → {badge or '[!] 배지 없음 (labels.CAUSE_OF에 추가)'}"
+                f" · 처리 {c.type} {c.action} · conf {c.confidence}"
             )
+    except Exception as e:  # 설정 없음·형식 오류
+        print(f"[X] {e}")
 
     if not args.image:
         return
@@ -107,7 +116,6 @@ def main() -> None:
         args.image,
         "image",
         work_dir=out_dir / "ai",
-        cache_dir=args.out / "_semantic_cache",
         storage_root=args.out,
         sample_id=args.image.stem,
         reference_width_m=args.surface_width,
@@ -125,6 +133,7 @@ def main() -> None:
     print(f"모델 {out.model_version} · 규칙 {out.rule_version} · {dt:.1f}초 (semantic 추론 {inferred})")
     for reason in r.reasons[:5]:
         print(f"   - {reason}")
+    out_dir.mkdir(parents=True, exist_ok=True)
     for k, img in out.images.items():
         if k != "class_map":
             imageio.imwrite(out_dir / f"{k}.jpg", img)

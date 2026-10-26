@@ -1,6 +1,6 @@
 """
 원인 배지와 dummy 엔진용 통합 라벨.
-- CAUSE_OF: 장애물 모델(RoadPush_AI/obstacle_yolo)의 클래스 → 원인 배지 (프론트 처리 경로의 키)
+- CAUSE_OF: 장애물 모델(RoadPush_AI configs/obstacle_detection.yaml)의 클래스 → 원인 배지 (프론트 처리 경로의 키)
 - L: dummy 엔진(passability/rules.py)의 라벨. roadpush_ai 엔진은 AI 팀의 Mapillary 라벨을 그대로 쓴다
 
 장애물 = 모델 팀 시각 클래스 4개 ('시각 클래스(후보)', 눈으로 구분되는 것만)
