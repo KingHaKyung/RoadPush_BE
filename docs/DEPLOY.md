@@ -31,7 +31,7 @@ flowchart LR
 | 조건 | 이유 |
 |---|---|
 | 11월 중순(심사 종료)까지 계속 켜져 있음 | 노트북·무료 호스팅의 잠자기 모드는 안 됨 |
-| 메모리 2GB 이상 (모델 2개 CPU 추론 시 4GB 이상 권장) | torch + DeepLab + YOLO |
+| 메모리 8GB 이상 권장 (dummy만이면 1GB) | torch + Mask2Former Swin-L + YOLO 2개 (CPU 추론) |
 | 고정 공인 IP | HTTPS 도메인 연결, UTIC 등록 IP |
 | 서울·춘천 지역 | Supabase·Vercel(icn1)과 가깝고 UTIC 등록에 유리 |
 
@@ -55,28 +55,32 @@ VM 공인 IP가 `1.2.3.4`라면 **`1-2-3-4.sslip.io`** 를 그대로 씁니다 (
 
 ### ③ 백엔드
 ```bash
-sudo apt update && sudo apt install -y python3-venv python3-pip git
-git clone https://github.com/KingHaKyung/RoadPush_BE.git && cd RoadPush_BE
-python3 -m venv .venv && . .venv/bin/activate
+sudo apt update && sudo apt install -y python3.12-venv python3-pip git     # Ubuntu 24.04 기본 Python = 3.12
+git clone https://github.com/KingHaKyung/RoadPush_BE.git
+git clone https://github.com/<AI 저장소>/RoadPush_AI.git                     # BE와 나란히 (../RoadPush_AI)
+cd RoadPush_BE
+python3.12 -m venv .venv && . .venv/bin/activate
 pip install -U pip
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu   # 실제 모델을 쓸 때 (CPU)
-pip install -e ".[ml]"                                                            # 모델 없이 dummy면 pip install -e .
+pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cpu   # 실제 모델 (CPU)
+pip install -e ".[ai]"                                                                          # 모델 없이 dummy면 pip install -e .
 cp .env.example .env && nano .env
 ```
 `.env`에서 바꿀 값:
 ```
 DATABASE_URL=postgresql+psycopg://postgres.<ref>:<비밀번호>@<pooler 호스트>.pooler.supabase.com:5432/postgres?sslmode=require
 PUBLIC_BASE_URL=https://1-2-3-4.sslip.io
+ANALYSIS_ENGINE=roadpush_ai         # 모델을 넣기 전에는 dummy (심사용 결과로 쓰지 않음)
+ROADPUSH_AI_ROOT=../RoadPush_AI/surface_passability
+OBSTACLE_YOLO_ROOT=../RoadPush_AI/obstacle_yolo
+SEMANTIC_DEVICE=cpu
 DEVICE=cpu
-SURFACE_MODEL=selectstar            # 가중치 전에는 dummy (심사용 결과로 쓰지 않음)
-SURFACE_WEIGHTS=model_weights/<모델 팀 노면 가중치>
-OBSTACLE_MODEL=yolo
-OBSTACLE_WEIGHTS=["model_weights/<모델 팀 장애물 가중치>.pt"]
 VWORLD_KEY=<브이월드 키>             # 행정구역·주소 자동 채우기
 VWORLD_DOMAIN=https://road-push-fe.vercel.app
 UTIC_API_KEY=<선택: UTIC 재생을 백엔드로 할 때>
 ```
-가중치 파일은 git에 없으므로 `scp`로 `model_weights/`에 올리고, 넣기 전에 `python scripts/check_model.py <사진>`으로 점검합니다.
+모델은 git에 없으므로 `scp`로 올립니다: `RoadPush_AI/surface_passability/models/`(Mask2Former 폴더·`yolo11n-seg.pt`),
+`RoadPush_AI/obstacle_yolo/weights/obstacle_yolo11s_full_os4.pt`. 올린 뒤 `python scripts/check_model.py <사진>`으로 점검합니다 ([SETUP.md 8장](SETUP.md#8-실제-모델-실행-roadpush_ai-팀-파이프라인)).
+AI Hub 데이터로 학습한 장애물 모델은 국외 반출 금지 조건이 있으므로 **국내 리전** 서버에 둡니다.
 비밀번호·키가 든 `.env`는 VM에만 둡니다.
 
 ### ④ 자동 실행 (systemd)

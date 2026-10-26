@@ -78,7 +78,7 @@ def run_once() -> bool:
 
 def loop(stop: threading.Event | None = None) -> None:
     s = get_settings()
-    log.info("분석 워커 시작 (surface=%s, obstacles=%s)", s.surface_model, s.obstacle_model)
+    log.info("분석 워커 시작 (engine=%s)", s.analysis_engine)
     while not (stop and stop.is_set()):
         if not run_once():
             time.sleep(s.worker_poll_sec)

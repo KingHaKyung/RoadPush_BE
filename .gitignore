@@ -1,6 +1,9 @@
 __pycache__/
 *.pyc
 .venv/
+.venv*/
+# ultralytics가 작업 폴더에 만드는 설정 폴더
+Ultralytics/
 .env
 *.db
 *.egg-info/

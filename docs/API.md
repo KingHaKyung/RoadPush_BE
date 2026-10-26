@@ -143,17 +143,18 @@ sequenceDiagram
   "bottleneck_m_est": 1.32,                  // 구간 실측 보도폭이 있을 때만 (판정에는 안 씀)
   "risk_complete": false,                    // false = 길이 항 측정 불가, 폭 항만 반영한 '부분 상대 지표'
   "causes": ["차량"],                         // 차량·공사시설·적치물·PM (시각 클래스 4개. 상태를 단정하지 않음)
-  "uncertainty_code": null,                  // occluded | mixed | low_coverage | low_confidence | night
-  "confidence": 0.79,
-  "reasons": ["남은 연속 통로가 가장 좁은 단면에서 보행폭의 55% (기준: 통과 ≥ 60%, 단절 < 30%)"],
+  "uncertainty_code": null,                  // roadpush_ai: surface_uncertain | boundary_review | boundary_failed | occupancy_unverified | low_coverage | night
+                                             // dummy: occluded | mixed | low_coverage | low_confidence | night  (PASSABILITY.md)
+  "confidence": null,                        // roadpush_ai는 null (등급은 GET …/analyses의 evidence.stats.measurement_confidence). dummy는 0~1
+  "reasons": ["남은 연속 통로가 가장 좁은 곳에서 보도 폭의 55% (상대폭 기준: 통과 ≥ 60%, 단절 < 30%) · 보도 실폭 기준 약 1.32m"],
   "analysis_trigger": "initial",             // initial | reanalysis
   "attempts": 1,
   "failure_reason": null,                    // failed일 때 한 줄 사유
   "review": null,                            // { id, analysis_id, status, human_passability, comment, reviewer, created_at }
   "action": { "action_id": null, "state": "none", "label": "미처리", "dept": null },
   "history": [{ "t": "2026-10-21T11:56:14+09:00", "txt": "AI 분석 완료 · 좁아짐 (상대 위험도 55)", "ai": true, "by": null }],
-  "model_version": "surface=selectstar-deeplabv3plus:selectstar_deeplab.pt + obstacles=yolo11n-seg.pt",
-  "rule_version": "rules-2026.10-b/policy-2026.10-draft"
+  "model_version": "mask2former_swin_large_mapillary@cpu + yolo11n-seg + obstacle_v2_yolo11s_full_os4",
+  "rule_version": "phase7_b_result_v2/phase7-consumer-2026.10"   // dummy: rules-2026.10-b/policy-2026.10-draft
 }
 ```
 

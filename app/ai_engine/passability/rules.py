@@ -64,7 +64,7 @@ class PassabilityResult:
     bottleneck_ratio: float | None  # 상대 유효폭 (남은 연속 통로 / 추정 전체 보행폭)
     bottleneck_m_est: float | None  # 비율 × 구간 실측 보도폭 (실측이 있을 때만, 판정에 안 씀)
     occupancy: int | None  # 병목 단면의 점유율(%) = 100 - 남은 폭 비율
-    confidence: float
+    confidence: float | None  # roadpush_ai 엔진은 수치 대신 등급(stats.measurement_confidence)을 낸다
     uncertainty_code: str | None
     reasons: list[str]
     stats: dict = field(default_factory=dict)

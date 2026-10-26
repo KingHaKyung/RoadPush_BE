@@ -21,15 +21,15 @@
 
 | 영역 | 사용 |
 |---|---|
-| API | Python 3.11+, FastAPI, Pydantic |
+| API | Python 3.12, FastAPI, Pydantic |
 | DB | SQLAlchemy 2, Alembic 마이그레이션 · 로컬 SQLite / 배포 Supabase PostgreSQL |
-| AI 분석 | PyTorch · SelectStar DeepLab v3+ (보도·차도) · Ultralytics YOLO11n-seg·YOLOE (장애물) · OpenCV |
+| AI 분석 | RoadPush_AI 팀 파이프라인을 그대로 사용: `roadpush_ai` (Mask2Former Mapillary → Phase 6 보도/차도 → 7-A 경계 → 7-B 연결 통로 폭) · `obstacle_yolo` (YOLO11s 장애물 원인 A~D) |
 | 작업 처리 | DB 대기열 + 분석 워커 (제한 재시도) |
 | 품질 | pytest (SQLite·PostgreSQL), ruff |
 
 ## 빠른 실행
 
-Python 3.11~3.12 권장. 자세한 순서와 Windows 명령은 [docs/SETUP.md](docs/SETUP.md).
+Python 3.12 권장 (실제 모델은 3.12만). 자세한 순서와 Windows 명령은 [docs/SETUP.md](docs/SETUP.md).
 
 ```bash
 python -m venv .venv
@@ -40,12 +40,12 @@ uvicorn app.main:app --reload     # http://localhost:8000 → API 문서
 python scripts/seed_demo.py       # 다른 터미널에서: 시연 데이터 넣기
 ```
 
-기본값은 **SQLite + dummy 모델**이라 GPU·가중치·DB 설치 없이 등록 → 분석 → 지도 → 검수 → 조치 → 전후 비교 흐름을 확인할 수 있습니다.
+기본값은 **SQLite + dummy 엔진**(`ANALYSIS_ENGINE=dummy`)이라 GPU·가중치·DB 설치 없이 등록 → 분석 → 지도 → 검수 → 조치 → 전후 비교 흐름을 확인할 수 있습니다.
 서버를 켜면 DB 테이블이 자동으로 만들어집니다 (Alembic 마이그레이션).
 
 | 작업 | 방법 |
 |---|---|
-| 실제 모델(GPU) | [SETUP.md 8장](docs/SETUP.md#8-실제-모델-실행-gpu-환경) |
+| 실제 모델 (`ANALYSIS_ENGINE=roadpush_ai`) | [SETUP.md 8장](docs/SETUP.md#8-실제-모델-실행-roadpush_ai-팀-파이프라인) · 점검 `python scripts/check_model.py 사진.jpg` |
 | Supabase(PostgreSQL) 연결 | [DB.md 2장](docs/DB.md#2-supabase-연결-순서) · 확인 `python scripts/check_db.py` |
 | 테이블 구조 변경 | [DB.md 5장](docs/DB.md#5-스키마-변경-절차) |
 | 사진 폴더 일괄 분석·임계값 보정 | `python scripts/analyze_folder.py <폴더> --labels labels.csv --out outputs/x` |
@@ -80,11 +80,12 @@ python scripts/seed_demo.py       # 다른 터미널에서: 시연 데이터 넣
 app/
   api/            라우터 · 응답 형식(schemas.py = 마스터 문서 4.4)
   services/       분석 워커 · 저장/조회 · EXIF · 파일 저장소 · 표준노드링크
-  ai_engine/      노면(surface) · 장애물(obstacles) · 통과 판정(passability) · 파이프라인
+  ai_engine/      roadpush.py(RoadPush_AI Phase 6→7-A→7-B 연결) · causes.py(장애물 원인) ·
+                  passability/(7-B → 판정, dummy 규칙) · pipeline.py(엔진 선택)
   db/             DB 연결 · 테이블 정의
 migrations/       DB 스키마 변경 이력 (Alembic)
 scripts/          seed_demo · check_db · analyze_folder
-model_weights/    모델 가중치 (Git 제외)
+model_weights/    (사용 안 함) 실제 모델은 RoadPush_AI 저장소 models/·weights/
 storage/          원본·mask·overlay (Git 제외)
 data/             표준노드링크 예시 지역 GeoJSON
 docs/             가이드 문서
@@ -94,5 +95,6 @@ tests/
 ## 데이터·모델 출처
 
 - 도로 링크 참고: 국토교통부 표준노드링크 (성남시 분당구 예시 지역, 프론트 저장소와 같은 변환본)
-- 노면: [SelectStar DeepLab v3+](https://github.com/selectstarofficial/segmentation-selectstar) (AI Hub 인도보행 영상)
-- 장애물: [Ultralytics YOLO11 / YOLOE](https://docs.ultralytics.com/) (AGPL-3.0)
+- 노면: [Mask2Former Swin-L Mapillary Vistas](https://huggingface.co/facebook/mask2former-swin-large-mapillary-vistas-semantic) (RoadPush_AI `manifests/model_assets_manifest.json`)
+- 장애물 원인: RoadPush_AI `obstacle_yolo` (YOLO11s, AI Hub 인도보행 영상 학습 — 국외 반출 금지) · Phase 6 차량 instance YOLO11n-seg
+- [Ultralytics YOLO11](https://docs.ultralytics.com/) (AGPL-3.0) — 공개 서비스 전 라이선스 확인
