@@ -20,7 +20,7 @@ flowchart LR
 | 도구 | 버전 | 확인 명령 | 설치 |
 |---|---|---|---|
 | Git | 아무거나 | `git --version` | https://git-scm.com |
-| Python | **3.11 또는 3.12 권장** (3.13도 기본 기능은 동작) | `python --version` | https://www.python.org/downloads/ (Windows: 설치 첫 화면에서 **Add python.exe to PATH** 체크) |
+| Python | **3.12** (실제 모델 `roadpush_ai`는 3.12만. dummy만 쓸 때는 3.13 이상도 동작) | `python --version` | https://www.python.org/downloads/ (Windows: 설치 첫 화면에서 **Add python.exe to PATH** 체크) |
 | VS Code | 선택 | | Python 확장 설치 |
 | Node.js | **18 이상 필수** (LTS 권장), 프론트도 띄울 때 | `node --version` → `v18.x` 이상 | https://nodejs.org → **LTS** 버튼 (아래 참고) |
 
@@ -151,85 +151,90 @@ npm run dev     # http://localhost:5173
 전체 테스트 순서는 [FRONTEND_INTEGRATION.md](FRONTEND_INTEGRATION.md)에 있습니다.
 허용 출처는 `.env`의 `CORS_ORIGINS`입니다 (기본: `http://localhost:5173`, `https://road-push-fe.vercel.app`).
 
-## 8. 실제 모델 실행 (GPU 환경)
+## 8. 실제 모델 실행 (RoadPush_AI 팀 파이프라인)
 
-팀 모델(SelectStar DeepLab v3+ 가중치)을 받기 전에도 **8-1 ~ 8-3**은 미리 해 둘 수 있습니다.
-공개 모델로 GPU·라이브러리·분석 경로가 동작하는지 확인해 두면, 가중치를 받은 날에는 파일만 넣고 바로 돌릴 수 있습니다.
+분석은 **RoadPush_AI 저장소의 코드를 그대로** 씁니다. 백엔드에는 모델·판정 규칙을 따로 두지 않습니다.
 
-### 8-1. CUDA용 PyTorch 설치
+| 단계 | AI 저장소 | 하는 일 |
+|---|---|---|
+| Phase 6 | `surface_passability` (`roadpush_ai`) | Mask2Former(Mapillary) semantic → 보도·차도 후처리 → 걸어갈 면 선택 |
+| Phase 7-A | 〃 | 보행면 양쪽 경계 (V6 → S1 연장 → 검증 → 등급) |
+| Phase 7-B | 〃 | 끊기지 않는 연결 통로의 3행 병목 비율 (+ 보도 실폭이 있으면 m 단위) |
+| 원인 | `obstacle_yolo` | 길을 막은 덩어리와 겹치는 탐지만 원인 (차량·공사시설·적치물·PM → 처리 유형 A~D) |
 
-> **CUDA Toolkit·cuDNN은 따로 설치하지 않아도 됩니다.** pip로 받는 PyTorch에 CUDA 실행 파일과 cuDNN이 들어 있어서,
-> PC에 설치된 CUDA Toolkit(예: 11.2)·cuDNN(예: 8.1)은 PyTorch가 쓰지 않습니다. 필요한 것은 **NVIDIA 그래픽 드라이버**뿐입니다.
-> 이미 설치된 CUDA 11.2·cuDNN 8.1은 지우지 않아도 되며(다른 프로그램이 쓸 수 있음), PyTorch와 충돌하지 않습니다.
-> 참고로 RTX 40 시리즈는 CUDA 11.8 이상에서 정식 지원되므로 CUDA 11.2용 빌드는 고르지 않습니다.
+백엔드 연결 코드: `app/ai_engine/roadpush.py`(단계 연결), `causes.py`(원인), `passability/phase7.py`(7-B 결과 → 판정).
+판정 규칙과 AI 계약은 [PASSABILITY.md](PASSABILITY.md) 0장.
 
-1. 그래픽 드라이버 확인 — `nvidia-smi` 오른쪽 위 `CUDA Version`(예: 12.6)을 봅니다. 이 값은 설치한 CUDA Toolkit 버전이 아니라
-   **드라이버가 지원하는 최대 버전**입니다. 이 숫자 **이하**의 PyTorch CUDA 빌드(12.6, 12.4, 11.8 중)를 고릅니다.
-   12.x보다 낮게 나오면 [NVIDIA 드라이버](https://www.nvidia.com/ko-kr/drivers/)를 최신으로 업데이트한 뒤 다시 확인합니다.
-2. https://pytorch.org/get-started/locally/ 에서 Stable · Windows · Pip · Python · CUDA(12.6 등)를 고르고 나온 명령을 실행합니다.
-   **`torch`와 `torchvision`을 반드시 같은 명령으로 함께** 설치합니다. 예:
-   ```bash
-   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
-   ```
-   약 2.5GB를 내려받습니다. `torch`만 설치하고 다음 단계로 가면 pip가 버전이 맞지 않는 `torchvision`을 받거나,
-   CUDA용 `torch`를 다른 빌드로 바꿔 버릴 수 있습니다.
-3. 모델 라이브러리 (transformers·ultralytics·scipy·YOLOE용 CLIP). CLIP은 GitHub에서 받으므로 Git이 필요합니다
-   ```bash
-   pip install -e ".[ml]"
-   ```
-4. GPU 확인 — `True`와 그래픽카드 이름이 나와야 합니다
-   ```bash
-   python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
-   ```
-   `False`면 CPU용 torch가 설치된 것이므로 `pip uninstall torch` 후 2번을 다시 합니다.
+### 8-1. 폴더 배치
 
-### 8-2. 공개 모델로 분석 경로 점검 (팀 모델 없이)
-`.env`를 아래처럼 바꿉니다. 처음 실행할 때 모델을 자동으로 내려받습니다.
 ```
-SURFACE_MODEL=hf
-SURFACE_WEIGHTS=facebook/mask2former-swin-tiny-cityscapes-semantic
-OBSTACLE_MODEL=yolo
-OBSTACLE_WEIGHTS=["model_weights/yolo11n-seg.pt"]
-DEVICE=cuda
+C:/dev/
+  RoadPush_BE/                  이 저장소
+  RoadPush_AI/
+    surface_passability/        src/roadpush_ai + models/ (Git 제외)
+      models/mask2former_swin_large_mapillary/
+      models/yolo11n-seg.pt
+    obstacle_yolo/              service/config.yaml + weights/obstacle_yolo11s_full_os4.pt (Git 제외)
 ```
-보도·차량이 보이는 사진 몇 장을 `work/sample/` 폴더에 넣고 서버 없이 분석합니다.
-```bash
-python scripts/analyze_folder.py work/sample --out outputs/check_hf
+다른 위치에 두면 `.env`의 `ROADPUSH_AI_ROOT`, `OBSTACLE_YOLO_ROOT`를 바꿉니다.
+모델 파일은 AI 저장소 `manifests/model_assets_manifest.json`과 `obstacle_yolo/service/config.yaml`의 SHA-256으로 확인합니다
+(장애물 가중치는 서버가 켜질 때 자동 대조).
+
+### 8-2. Python 3.12 가상환경과 패키지
+
+`roadpush_ai`는 **Python 3.12만** 지원합니다 (AI `pyproject.toml`). dummy로만 개발하던 다른 버전 가상환경과 따로 만듭니다.
+
+> **CUDA Toolkit·cuDNN은 따로 설치하지 않아도 됩니다.** pip로 받는 PyTorch에 CUDA 실행 파일이 들어 있어
+> 필요한 것은 **NVIDIA 그래픽 드라이버**뿐입니다 (CUDA 12.8 빌드 → Windows 드라이버 570.65 이상).
+
+```powershell
+cd C:\dev\RoadPush_BE
+py -3.12 -m venv .venv312
+.venv312\Scripts\Activate.ps1
+python -m pip install -U pip
+# torch·torchvision을 먼저 같은 명령으로 (AI 저장소 requirements/torch-*.txt와 같은 버전)
+pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cpu     # CPU
+# pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cu128  # GPU
+pip install -e ".[ai,dev]"
+pip install -e ..\RoadPush_AI\surface_passability --no-deps      # 선택: 안 하면 ROADPUSH_AI_ROOT/src를 찾아 쓴다
 ```
-`outputs/check_hf/results.csv`와 `overlays/<사진>_surface.jpg`(노면 결과)가 생기면 성공입니다.
-판정이 나온 사진은 `<사진>_passage.jpg`(남은 통로·점유)도 생깁니다. 공개 모델은 판단 유보가 많이 나올 수 있습니다. 이 단계의 목적은 **코드·GPU 동작 확인**이며,
-Mask2Former Swin-Tiny Cityscapes는 한국 보도에서 성능이 낮았던 비교 모델(마스터 문서 8장)이라 판정 정확도는 보지 않습니다.
-오류가 나면 전체 메시지를 백엔드 담당에게 전달합니다.
+`py` 런처가 없으면 [uv](https://docs.astral.sh/uv/)로 같은 환경을 만듭니다 (Python 3.12도 uv가 받아 줌):
+```powershell
+uv python install 3.12
+uv venv .venv312 --python 3.12
+uv pip install --python .venv312\Scripts\python.exe torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cu128
+uv pip install --python .venv312\Scripts\python.exe -e ".[ai,dev]"
+uv pip install --python .venv312\Scripts\python.exe -e ..\RoadPush_AI\surface_passability --no-deps
+```
 
-### 8-3. 팀 모델을 받으면
-1. 모델 팀에게 받을 것: `selectstar_deeplab.pt`(TorchScript, 내보내는 방법은 `app/ai_engine/surface/selectstar.py` 맨 위), 클래스 0~6 순서, 전처리(정규화 값·입력 크기)
-2. 파일을 `model_weights/`에 넣고 `.env`의 노면 모델만 바꿉니다
-   ```
-   SURFACE_MODEL=selectstar
-   SURFACE_WEIGHTS=model_weights/selectstar_deeplab.pt
-   ```
-3. 8-2와 같은 사진으로 다시 분석해 결과를 비교합니다
-   ```bash
-   python scripts/analyze_folder.py work/sample --out outputs/check_selectstar
-   ```
+### 8-3. .env
 
-### 8-4. 팀 장애물 모델(시각 클래스)을 받으면
-1. 받을 것: Ultralytics 가중치(`.pt`). 클래스 이름은 `vehicle`·`construction`·`debris`·`micromobility`
-   (대소문자 무관, 한글 이름도 가능. 매핑은 `app/ai_engine/labels.py`의 `CAUSE_OF`)
-2. `model_weights/`에 넣고 `.env`를 고치기 전에 점검합니다
-   ```bash
-   python scripts/check_model.py <보도 사진.jpg> --obstacle-weights model_weights/roadpush_obstacle_v1.pt
-   ```
-   - 클래스 이름마다 어떤 원인 배지가 되는지, **버려지는 이름**이 있는지 보여 줍니다. 장애물인데 버려지면 `CAUSE_OF`에 추가합니다
-   - segmentation(`-seg`) 모델이면 mask를 쓰고, 박스만 내는 detection 모델이면 박스 사각형을 영역으로 씁니다.
-     박스는 바닥·배경까지 포함해 **점유율이 높게** 나오므로 결과 `model_version`에 `(bbox)`가 붙습니다
-   - 판정·걸린 시간과 overlay(`outputs/check_model/`)로 동작을 확인합니다
-3. 문제가 없으면 `.env`에 반영하고 서버를 다시 켭니다
-   ```
-   OBSTACLE_MODEL=yolo
-   OBSTACLE_WEIGHTS=["model_weights/roadpush_obstacle_v1.pt"]
-   ```
-   노면 모델이 아직 `dummy`면 dummy가 그린 가짜 장면 위에 실제 장애물이 섞이므로, 노면 모델(8-2 `hf` 또는 8-3 `selectstar`)과 함께 바꿉니다.
+```
+ANALYSIS_ENGINE=roadpush_ai
+ROADPUSH_AI_ROOT=../RoadPush_AI/surface_passability
+OBSTACLE_YOLO_ROOT=../RoadPush_AI/obstacle_yolo
+SEMANTIC_DEVICE=cpu        # AI 팀 결과 재현 기준. cuda는 빠르지만 결과가 조금 달라질 수 있음
+DEVICE=auto                # 장애물 원인 모델: GPU가 있으면 GPU
+# AGENT_WIDTH_M=0.9        # 선택: 구간 보도 폭이 있을 때 m 단위 판정 (없으면 상대폭 기준)
+# SAFETY_FACTOR=1.2
+```
+- 장애물 가중치(`obstacle_yolo/weights/`)를 아직 못 받았으면 `OBSTACLE_YOLO_ROOT=`로 비웁니다. 폴더를 지정했는데 가중치가 없거나
+  SHA-256이 다르면 설정 오류로 보고 분석을 실패로 남깁니다 (원인 없이 조용히 넘어가지 않게).
+- `roadpush_ai`는 import될 때 GPU를 숨기도록 되어 있습니다 (AI 팀 CPU 기준). 백엔드가 그 전에 CUDA를 먼저 초기화하므로
+  장애물 모델은 `DEVICE`대로 GPU를 쓸 수 있습니다. Phase 6의 YOLO11n-seg는 AI 팀 설정대로 CPU에서 돕니다.
+- `STORAGE_DIR`·`ROADPUSH_AI_ROOT`는 **한글이 없는 경로**에 둡니다. AI 코드는 마스크를 `cv2.imread/imwrite`(문자열 경로)로 읽고 써서
+  Windows에서 경로에 한글(예: `바탕 화면`)이 있으면 실패합니다 ([TROUBLESHOOTING.md](TROUBLESHOOTING.md)의 한글 경로 문제와 같은 원인).
+- 걸리는 시간(CPU): Mask2Former Swin-L 추론 + Phase 7-A 경계 적합. 7-A만 사진 1장(긴 변 700px)에 수십 초 걸릴 수 있습니다.
+  분석은 워커 큐로 돌아서 화면은 "AI 분석 대기 중"을 보이다가 결과로 바뀝니다. 같은 관측을 재분석하면 semantic 캐시를 다시 씁니다.
+
+### 8-4. 점검
+
+```powershell
+python scripts/check_model.py              # 설치·모델 파일·장애물 클래스 → 원인 배지
+python scripts/check_model.py 보도사진.jpg  # 사진 1장 Phase 6 → 7-A → 7-B → 원인 (outputs/check_model/<사진>/)
+```
+`evidence.json`에 7-B 기록 전체(`phase7_b_result_v2`)가, `obstacle_overlay.jpg`에 연결 통로·병목·원인 박스가 나옵니다.
+여러 장은 `python scripts/analyze_folder.py <폴더> --labels labels.csv --out outputs/x` (사진별 7-B 기록은 `phase7b.jsonl`).
 
 ## 9. 테스트
 
@@ -280,6 +285,7 @@ git push -u origin feat/짧은-설명              # GitHub에서 main으로 Pul
 | 관측이 `failed` | `GET /api/v1/observations/{id}/analyses`의 `error` 확인. `input`이면 사진 파일 문제 |
 | `422 구간을 확인해 주세요` | 등록할 때 `site_id`(기존 구간) 또는 `new_site_name`(신규 구간) 중 하나 필요 |
 | `422 captured_at에 시간대` | `2026-10-21T14:30:00+09:00`처럼 `+09:00` 붙이기 |
-| 실제 모델에서 `torch` 없음 | [8-1](#8-1-cuda용-pytorch-설치) |
+| 실제 모델에서 `torch`·`roadpush_ai` 없음 | Python 3.12 가상환경인지 확인 → [8-2](#8-2-python-312-가상환경과-패키지), `python scripts/check_model.py` |
 | `torch.cuda.is_available()`이 False | CPU용 torch가 깔림 → `pip uninstall torch` 후 CUDA용 명령으로 다시 설치 |
+| 분석이 `ModelMissing`으로 실패 | AI 저장소 `models/`·`weights/`에 모델 파일이 없음 또는 장애물 가중치 SHA-256 불일치 → [8-1](#8-1-폴더-배치) |
 | DB를 초기화하고 싶음 | 서버 끄고 `data/roadpush.db`, `storage/` 삭제 (참조 레이어도 지워지므로 `scripts/load_reference.py`로 다시 넣기) |

@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from app.ai_engine.labels import CAUSE_OF, CAUSES, PERSON_NAMES, L, cause_of, name_label
+from app.ai_engine.labels import CAUSE_OF, CAUSES, PERSON_NAMES, L, cause_of
 from app.ai_engine.scene import causes_from, compose
 from app.ai_engine.types import Instance, SurfaceResult
 
@@ -31,7 +31,7 @@ def test_people_animals_and_fixed_facilities_are_not_obstacles():
     for n in ("person", "dog", "동물"):
         assert n in PERSON_NAMES and cause_of(n) is None
     for n in ("pole", "bench", "street light", "vegetation"):
-        assert name_label(n) == L.BACKGROUND and cause_of(n) is None
+        assert cause_of(n) is None
 
 
 def test_causes_from_model_instances():

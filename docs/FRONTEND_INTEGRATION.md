@@ -159,7 +159,7 @@ flowchart TD
 ```
 
 ### ① 백엔드를 Supabase에 연결
-`RoadPush_BE\.env`의 `DATABASE_URL`을 Supabase 주소로 바꿉니다 ([DB.md 2장](DB.md#2-supabase-연결-순서)). `SURFACE_MODEL=dummy`는 그대로 둡니다.
+`RoadPush_BE\.env`의 `DATABASE_URL`을 Supabase 주소로 바꿉니다 ([DB.md 2장](DB.md#2-supabase-연결-순서)). `ANALYSIS_ENGINE=dummy`는 그대로 둡니다.
 
 ### ② 백엔드 실행 (터미널 1)
 ```powershell

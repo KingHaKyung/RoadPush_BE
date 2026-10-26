@@ -61,6 +61,37 @@ def passage_overlay(img: np.ndarray, res: PassabilityResult) -> np.ndarray:
     return out
 
 
+def phase7_surface_overlay(img: np.ndarray, surface: np.ndarray | None, blocked: np.ndarray | None) -> np.ndarray:
+    """roadpush_ai: 확정된 보행면(초록)과 측정 점유(빨강)"""
+    out = img.copy()
+    for mask, color, alpha in ((surface, (90, 200, 90), 0.45), (blocked, (40, 40, 220), 0.6)):
+        if mask is not None and mask.any():
+            painted = cv2.addWeighted(out, 1 - alpha, np.full_like(out, color), alpha, 0)
+            out[mask] = painted[mask]
+    return out
+
+
+def phase7_passage_overlay(img: np.ndarray, record: dict) -> np.ndarray:
+    """roadpush_ai: 7-B가 고른 연결 통로(초록)와 3행 병목(노랑). 원인 overlay(덩어리·박스) 위에 덧그려도 된다"""
+    out = img.copy()
+    green = out.copy()
+    for node in record.get("selected_corridor_path") or []:
+        a, b = node["interval"]
+        green[node["y"], a : b + 1] = (60, 220, 60)
+    out = cv2.addWeighted(out, 0.45, green, 0.55, 0)
+    bottleneck = record.get("bottleneck") or {}
+    row = bottleneck.get("center_row", bottleneck.get("row"))
+    seg = bottleneck.get("selected_interval")
+    if row is not None and seg:
+        cv2.line(out, (seg[0], row), (seg[1], row), (0, 255, 255), 3)
+        ratio = record.get("minimum_passable_ratio")
+        label = "bottleneck" + (f" {ratio:.0%}" if ratio is not None else "")
+        cv2.putText(
+            out, label, (seg[0], max(12, row - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1, cv2.LINE_AA
+        )
+    return out
+
+
 def image_quality(img: np.ndarray) -> dict:
     """야간·흐림 판단용 간단한 지표. 판정 유보 사유(night)를 정할 때 쓴다"""
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)

@@ -1,5 +1,53 @@
 # 통과 여부·위험도 계산 (`app/ai_engine/passability/`)
 
+| 엔진 (`ANALYSIS_ENGINE`) | 통로 폭 계산 | 판정 | 문서 |
+|---|---|---|---|
+| **`roadpush_ai` (서비스·심사용)** | RoadPush_AI 팀 Phase 7-B (`phase7_b_result_v2`) | `passability/phase7.py` | 0장 |
+| `dummy` (흐름 확인용) | 백엔드 임시 규칙 `rules.py` (`rules-2026.10-b`) | `rules.py` | 1~7장 |
+
+1~7장은 AI 팀 파이프라인을 받기 전에 만든 백엔드 임시 규칙입니다. 지금은 dummy 엔진과 `scripts/analyze_folder.py`의
+규칙 실험에만 쓰고, 상대 위험도(5장)와 상대폭 기준값(`Policy.passable_min_ratio`·`blocked_below_ratio`)은 두 엔진이 같이 씁니다.
+
+## 0. AI 팀 Phase 7-B 결과 → 판정 (`phase7.py`, `phase7-consumer-2026.10`)
+
+AI 계약: RoadPush_AI `surface_passability/docs/PHASE7B_PRODUCTION_LOGIC.md` (4·5·7장). 백엔드는 **값을 다시 계산하지 않고 소비 규칙만** 적용합니다.
+
+| 7-B 결과 | 판정 | 위험도·통로 비율 | 유보 코드 |
+|---|---|---|---|
+| `selected_surface = null` (Phase 6이 걸을 면을 못 정함) | 판단 유보 | 없음 | `surface_uncertain` |
+| `result_authority = provisional_review` (7-A `ambiguous_hold`) | 판단 유보 (사람 검토) | **없음** — 가계산 비율은 사유 문장에만 | `boundary_review` |
+| `result_authority = none` 또는 `minimum_passable_ratio = null` | 판단 유보 | 없음 (null을 0으로 바꾸지 않음) | `boundary_failed`·`occupancy_unverified`·`low_coverage` |
+| authoritative + `passability_state` = passable·narrowed·blocked | **AI 판정 그대로** (비율 0 = 단절, 또는 실폭 입력으로 m 단위 판정) | `minimum_passable_ratio` | — |
+| authoritative + `relative_only` (실폭·통행 폭 입력 없음) | 상대폭 기준: 통과 ≥ 60%, 단절 < 30% (`rules.Policy`, 현장 보정 대상) | `minimum_passable_ratio` | — |
+
+- 판정·위험도에는 3행 robust 병목 `minimum_passable_ratio`만 씁니다. `raw_minimum_passable_ratio`(단일 행 최저)는 쓰지 않습니다.
+- `measurement_scope = partial`(경계가 확정된 앞부분만)은 판정을 내되 사유에 "앞부분만 측정"을 붙입니다.
+- `bottleneck_m_est` = `absolute_passable_width_m` (구간 `sidewalk_width_m`이 있을 때). `effective_blocked_width_m`는 장애물 폭이 아니라서 화면에 내지 않습니다.
+- `.env`에 `AGENT_WIDTH_M`(예: 휠체어 0.9)·`SAFETY_FACTOR`(예: 1.2)를 넣고 구간 보도 폭이 있으면 7-B가 m 단위로 통과·좁아짐·단절을 냅니다.
+- `confidence`는 비웁니다. AI는 수치 대신 등급(`measurement_confidence`)을 내며 `evidence.stats`에 남습니다.
+- 원인 배지는 모델 팀 `obstacle_yolo/service/attach_cause.py` 규칙(`phase6_blocker_overlap_v1`) 그대로입니다.
+  길을 막은 blocker 덩어리와 겹친 탐지만 원인이고, 클래스가 없는 덩어리만 있으면 `장애물`입니다.
+  민원 자동 전달 가능 여부(`evidence.cause.auto_routable`) = 원인이 있고 authoritative.
+
+### 근거 (`analyses.evidence`, roadpush_ai)
+
+| 키 | 내용 |
+|---|---|
+| `phase7b` | 7-B 기록 전체 (`phase7_b_result_v2`). 로컬 경로는 저장소 기준 상대 경로로 바꿈 |
+| `selection`·`v6`·`phase7a` | Phase 6 surface 선택, V6 분류, 7-A S1 상태·사유 |
+| `cause` | 원인 판정 상태·덩어리별 원인·탐지 박스·`auto_routable` |
+| `versions`·`idempotency_key`·`image_sha256` | 모델·정책 버전, AI 계약 5장 멱등 key |
+| 파일 | `analyses/<id>/ai/attempt-N/phase6/` (Phase 6 마스크. 재시도마다 새 폴더), `observations/<id>/semantic/` (semantic 캐시) |
+
+### 새 사진 처리 방식
+- 새 사진의 7-A는 `Phase7AAdapter.reconstruct()`와 같은 순서(V6 → S1-A → V4c+Banner → V4 probe 등급)로 계산합니다 (`roadpush.measure()`).
+  고정 160장과 달리 저장된 결정이 없으므로 hash 대조 단계만 빠집니다.
+- V6 장애물 실루엣은 `retry_v4.py`에 적힌 출처대로 Mapillary `OCCUPANCY + HAZARD` 클래스로 만듭니다 (`roadpush.py` `_obstacle_silhouette`).
+
+---
+
+# 백엔드 임시 규칙 (dummy 엔진)
+
 마스터 문서 9장 팀 합의를 구현한 것입니다. 규칙 `rules-2026.10-b`, 정책 `policy-2026.10-draft`(보정 전 초안).
 값이나 로직을 바꾸면 버전을 올려야 이전 분석과 비교할 수 있습니다.
 

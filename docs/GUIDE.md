@@ -55,21 +55,23 @@ flowchart TD
     RESHOOT --> CMP["전후 비교<br/>GET /sites/{id}/compare"]
 ```
 
-### AI 분석 모듈 안
+### AI 분석 모듈 안 (`ANALYSIS_ENGINE=roadpush_ai`)
+
+RoadPush_AI 저장소의 코드를 그대로 부릅니다. 백엔드는 단계를 잇고(`roadpush.py`) 결과를 판정으로 바꿉니다(`passability/phase7.py`).
 
 ```mermaid
 flowchart LR
-    F["사진<br/>(영상이면 N초 간격 프레임)"] --> S["보도·차도<br/>semantic mask<br/>SelectStar DeepLab v3+"]
-    F --> O["차량·비차량<br/>instance mask<br/>YOLO11n-seg · YOLOE"]
-    S --> C["통합 라벨 장면<br/>보도·차도·연석·장애물·보행자·배경"]
-    O --> C
-    C --> V["영상이면 프레임 융합<br/>지나가는 사람 제거"]
-    V --> W["단면별 전체 보행폭 W 추정<br/>가려진 경계는 양옆·인접 단면으로"]
-    W --> P["남은 개별 통로<br/>→ 입구-출구 연속 통로"]
-    P --> J{"낙관·보수 판정 같음?"}
-    J -- 다름 --> U["판단 유보 + 사유"]
-    J -- 같음 --> R["통과 / 좁아짐 / 단절<br/>+ 상대 위험도 + 근거 이미지"]
+    F["사진<br/>(영상이면 가운데 프레임)"] --> M["Mask2Former Swin-L<br/>Mapillary semantic<br/>(관측별 캐시)"]
+    M --> P6["Phase 6<br/>보도·차도 후처리<br/>장애물 ownership (YOLO11n-seg)<br/>걸을 면 선택"]
+    P6 --> P7A["Phase 7-A<br/>양쪽 경계 V6 → S1 연장<br/>→ 검증 → 등급"]
+    P7A --> P7B["Phase 7-B<br/>연결 통로 DAG<br/>3행 병목 비율 (+ 실폭)"]
+    P6 --> CA["원인 (obstacle_yolo)<br/>blocker 덩어리 × YOLO11s 박스<br/>→ 처리 유형 A~D"]
+    P7B --> J{"authoritative?"}
+    J -- "아님 (검토·측정 불가)" --> U["판단 유보 + 사유"]
+    J -- 예 --> R["통과 / 좁아짐 / 단절<br/>+ 상대 위험도 + 근거 이미지"]
+    CA --> R
 ```
+`dummy` 엔진은 모델 없이 가짜 장면 + 백엔드 임시 규칙(`rules.py`)으로 같은 응답을 만듭니다 ([PASSABILITY.md](PASSABILITY.md)).
 
 ### 상태가 바뀌는 방식
 
@@ -92,15 +94,15 @@ stateDiagram-v2
 app/
   api/                 등록·지도·상세·검수·조치·비교 라우터, 응답 형식(schemas.py = 4.4)
   services/            관측 처리·AI 호출·저장/조회 (worker, analysis, views, exif, storage, nodelink)
-  ai_engine/           모델 로딩·추론·계산 (DB를 모름)
-    surface/           SelectStar DeepLab v3+ · HuggingFace 비교 모델 · dummy
-    obstacles/         Ultralytics YOLO11n-seg · YOLOE
-    passability/       단면 W · 연속 통로 · 판정(rules) · 상대 위험도(risk) · overlay
-    scene.py           노면 + 장애물 합성, 영상 프레임 융합
-    pipeline.py        AI 모듈 진입점
+  ai_engine/           분석 (DB를 모름)
+    pipeline.py        AI 모듈 진입점 (ANALYSIS_ENGINE: roadpush_ai | dummy)
+    roadpush.py        RoadPush_AI roadpush_ai 연결: Phase 6 → 7-A → 7-B (사진 1장)
+    causes.py          RoadPush_AI obstacle_yolo 연결: 장애물 원인 → 원인 배지·처리 유형
+    passability/       7-B 결과 → 판정(phase7) · 상대 위험도(risk) · overlay · dummy 규칙(rules)
+    surface/ scene.py  dummy 엔진 (가짜 장면, 영상 프레임 융합)
   db/                  DB 연결·테이블 정의(models.py)
 migrations/            DB 스키마 변경 이력 (Alembic) → DB.md
-model_weights/         선택 가중치 (Git 제외)
+model_weights/         (사용 안 함) 모델은 RoadPush_AI 저장소 models/·weights/ (Git 제외)
 storage/               서비스 원본·mask·overlay (Git 제외)
 data/                  학습·평가 자료 (Git 제외, 표준노드링크 예시만 포함)
 scripts/               analyze_folder.py (일괄 분석·보정) · seed_demo.py (시연 데이터)
@@ -108,18 +110,19 @@ outputs/  work/        실험 결과·임시 (Git 제외)
 docs/
 ```
 
-## 4. 모델 운용 (RTX 4060 Laptop 8GB)
+## 4. 모델 운용
 
-| 역할 | 기본 | 설정 |
+| 역할 | 모델 (RoadPush_AI) | 위치·설정 |
 |---|---|---|
-| 보도·차도 | SelectStar DeepLab v3+ (잠정 우선) | `SURFACE_MODEL=selectstar`, TorchScript 파일 → [model_weights/README.md](../model_weights/README.md) |
-| 비교 | Mask2Former·SegFormer (HF) | `SURFACE_MODEL=hf`, `SURFACE_WEIGHTS=<HF 모델 ID>` |
-| 차량 | YOLO11n-seg (COCO) | `OBSTACLE_MODEL=yolo` |
-| 비차량 | YOLOE 구체 카테고리 | `OBSTACLE_WEIGHTS`에 `경로|traffic cone,barricade,…` |
-| 연결 확인 | dummy | 기본값. 모델 없이 API·프론트 확인 |
+| 노면 semantic | Mask2Former Swin-L Mapillary Vistas | `ROADPUSH_AI_ROOT/models/mask2former_swin_large_mapillary/`, `SEMANTIC_DEVICE=cpu`(AI 팀 기준) |
+| 차량 instance (Phase 6 조건부) | YOLO11n-seg | `ROADPUSH_AI_ROOT/models/yolo11n-seg.pt` (CPU) |
+| 장애물 원인 | YOLO11s `obstacle_v2_yolo11s_full_os4` (vehicle·construction·debris·micromobility) | `OBSTACLE_YOLO_ROOT/service/config.yaml`(임계값·imgsz 640·SHA-256), `DEVICE=auto` |
+| 연결 확인 | dummy | `ANALYSIS_ENGINE=dummy` (기본값). 모델 없이 API·프론트 확인 |
 
-DeepLab v3+와 YOLO 계열은 8GB에서 추론·미세조정 모두 무리 없습니다. 분석은 큐로 돌아 실시간이 필요 없습니다.
-실행 확인 (CPU): YOLO11n-seg·YOLOE(텍스트 카테고리) 공개 가중치, HF Mask2Former·SegFormer 구조, 서버 분석 큐까지 동작. 남은 확인: RTX 4060(CUDA)에서의 속도·메모리, SelectStar TorchScript 파일(모델 팀 전달 후).
+- 모델·가중치는 Git에 없습니다 (AI 저장소 `models/`·`weights/`). 설치·점검: [SETUP.md 8장](SETUP.md#8-실제-모델-실행-roadpush_ai-팀-파이프라인), `python scripts/check_model.py 사진.jpg`
+- `roadpush_ai`는 Python 3.12 · torch 2.7.1 기준입니다 (AI 저장소 requirements와 같은 버전을 `pyproject.toml`의 `ai`에 고정).
+- 걸리는 시간은 CPU 기준 Mask2Former Swin-L 추론 + Phase 7-A 경계 적합이 대부분입니다. 7-A만 사진 1장에 수십 초가 걸릴 수 있어
+  심사 전 시연 데이터는 미리 분석해 둡니다. 분석은 큐로 돌아 화면이 멈추지 않습니다.
 
 ## 5. 공모전 제출물과 백엔드가 맡을 일
 
@@ -152,7 +155,7 @@ flowchart LR
 - 프론트 Vercel 환경 변수: `VITE_API_BASE_URL=https://<백엔드 주소>/api/v1`
 - 지도·도로망·ITS CCTV는 프론트 Vercel 함수가 처리합니다. UTIC 영상만 고정 IP가 필요해 선택으로 백엔드에 넘깁니다.
 - 설치·HTTPS(Caddy)·자동 실행·확인 목록: **[DEPLOY.md](DEPLOY.md)**
-- 심사 기간(11월 중순까지) 내내 켜져 있어야 하므로 노트북 서버는 쓰지 않습니다. DeepLab v3+·YOLO11n은 CPU로도 장당 수 초라 큐 구조에서 충분합니다.
+- 심사 기간(11월 중순까지) 내내 켜져 있어야 하므로 노트북 서버는 쓰지 않습니다. CPU에서는 사진 1장 분석에 수십 초~수 분이 걸릴 수 있어 메모리 8GB 이상 VM과 미리 분석해 둔 시연 데이터를 권장합니다 (4장).
 - 심사위원이 바로 볼 수 있게 분석이 끝난 시연 데이터를 미리 넣어 둡니다 (`scripts/seed_demo.py --base https://<백엔드 주소>/api/v1` 또는 실제 사진 등록).
 
 ## 6. 일정 (10/21 ~ 10/31)
@@ -177,7 +180,7 @@ flowchart LR
 2. 구간 후보 검색 반경 (기본 50 m) — 실제 GPS 오차 보고 조정
 3. 위험정보 유효시간 (답변서1: 팀 결정). 현재는 "최신 촬영 관측"만 보여 주고 만료는 없음
 4. 배포 서버 (VM 종류)
-5. 저장소 공개 여부와 데이터·가중치 사용 조건 (AI Hub 수락 조건, SelectStar checkpoint, Ultralytics AGPL)
+5. 저장소 공개 여부와 데이터·가중치 사용 조건 (AI Hub 수락 조건·국외 반출 금지, Mask2Former·Mapillary Vistas 조건, Ultralytics AGPL)
 6. 직접 촬영 사진의 얼굴·번호판 비식별 방법 (답변서2: 필수)
 7. 장애물 클래스 분리 — 모델 팀 확정안은 vehicle·construction·debris·micromobility. 오토바이·입간판·쓰레기 분리 여부 확인 중이며, 백엔드 매핑은 두 경우 모두 처리 ([FRONTEND_INTEGRATION.md 2-2](FRONTEND_INTEGRATION.md#2-2-원인-배지-이름-causes))
 8. 참조 레이어 범위 — 받은 데이터는 서울만 있어 성남 시연 구간에는 보도 폭이 붙지 않음 ([DB.md 6장](DB.md#6-참조-레이어-서울-보행-링크--도로구간--보도-구간))
