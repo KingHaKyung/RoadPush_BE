@@ -5,6 +5,10 @@
 | `roadpush_architecture.svg` | 서비스 아키텍처 |
 | `roadpush_api_spec.svg` | API 명세서 · 핵심 엔드포인트 (가로) |
 | `roadpush_feature_spec.svg` | 기능 명세서 · 기능 목록과 판정 규칙 (가로) |
+| `page04_service_flow.svg` | 발표 자료 4쪽 · 서비스 흐름 ①~⑤ |
+| `page05_backend_layers.svg` | 발표 자료 5쪽 · 백엔드 내부 계층 |
+| `page06_async_queue.svg` | 발표 자료 6쪽 · 분석 대기열 |
+| `page13_limits_next.svg` | 발표 자료 13쪽 · 한계와 다음 단계 (밝은 색으로 바꿈) |
 
 배경 사각형이 없어서 내용만 들어갑니다. 글자는 글자 레이어, 상자·화살표·아이콘은 도형 레이어로 들어와 바로 고칠 수 있습니다.
 
