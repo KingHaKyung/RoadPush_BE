@@ -2,7 +2,7 @@
 상대 위험도 (0~100). 원 제안서 식 (마스터 문서 9장)을 뼈대로, 백엔드가 세운 임시 기준을 더했다.
 기준값은 RiskParams 하나에 모여 있고, 운영 중에는 DB(risk_policies)의 현재 버전을 쓴다 → 프론트에서 바꿀 수 있게.
 
-    R = 100 × Σ(가중치 × 항) / Σ(측정된 항의 가중치)   → 판정 구간으로 자르기
+    raw = 100 × Σ(가중치 × 항) / Σ(측정된 항의 가중치)   → 판정 구간 안에 비례로 넣기
 
 항 (각 0~1, 클수록 위험). 측정할 수 없는 항은 0점으로 넣지 않고 빼며, 그러면 complete=False
 - width     통로 폭: 1 − 유효보행폭비율 (rules.bottleneck_ratio). 원 제안서 w1
@@ -11,18 +11,21 @@
 - detour    차도 우회 위험: 막혀서 차도로 내려설 때 그 도로가 넓을수록(차로 많을수록) 위험. 이미 보차혼용 도로면 1
 - cause     원인 종류 (차량은 움직이고 크다 → 1, 적치물 0.6 …)
 
-판정 구간: 판정과 점수 순서가 어긋나지 않게 통과·좁아짐·단절별 최소·최대로 자른다.
+판정 구간: 판정과 점수 순서가 어긋나지 않게 통과·좁아짐·단절별 범위를 둔다.
+  scale(기본) 점수 = 최소 + raw/100 × (최대 − 최소). 같은 판정 안에서 raw 순서가 그대로 남는다
+  clamp      raw를 범위로 자른다 (v1 방식. 경계에 점수가 몰려 순위를 가리기 어려움)
 판단 유보는 점수를 내지 않는다 (None). 측정 불가를 0점으로 표시하지 않는다.
 기본값은 현장 보정 전 임시값이다 (docs/PASSABILITY.md 위험도 기준).
 """
 
 from dataclasses import dataclass
+from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
 from .rules import PassabilityResult
 
-RISK_VERSION = "risk-2026.10-v1"
+RISK_VERSION = "risk-2026.10-v2"
 TERMS = ("width", "length", "absolute", "detour", "cause")
 
 
@@ -64,7 +67,10 @@ class RiskParams(BaseModel):
             "narrowed": Band(min=30, max=69),
             "blocked": Band(min=70, max=100),
         },
-        description="판정별 점수 범위. 계산값을 이 범위로 자른다 (판정과 점수 순서를 맞춤)",
+        description="판정별 점수 범위 (판정과 점수 순서를 맞춤)",
+    )
+    band_mode: Literal["scale", "clamp"] = Field(
+        "scale", description="scale: 0~100 계산값을 범위 안에 비례로 넣음 / clamp: 범위 밖 값을 자름"
     )
     grades: list[Grade] = Field(
         default_factory=lambda: [
@@ -154,7 +160,10 @@ def risk_score(
     wsum = sum(p.weights[k] for k in used)
     raw = 100 * sum(p.weights[k] * v for k, v in used.items()) / wsum
     band = p.bands[res.verdict]
-    score = int(round(max(band.min, min(band.max, raw))))
+    if p.band_mode == "scale":
+        score = int(round(band.min + raw / 100 * (band.max - band.min)))
+    else:
+        score = int(round(max(band.min, min(band.max, raw))))
     missing = [k for k, w in p.weights.items() if w > 0 and t[k] is None]
     g = grade_of(score, p)
     return score, {
@@ -163,7 +172,7 @@ def risk_score(
         "terms": {k: None if v is None else round(v, 3) for k, v in t.items()},
         "weights": {k: p.weights.get(k, 0) for k in TERMS},
         "raw": round(raw, 1),
-        "band": band.model_dump(),
+        "band": band.model_dump() | {"mode": p.band_mode},
         "grade": g.code,
         "grade_label": g.label,
         "complete": not missing,

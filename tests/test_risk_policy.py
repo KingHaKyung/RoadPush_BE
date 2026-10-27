@@ -49,6 +49,12 @@ def test_terms_and_bands():
     # 판정 구간: 통과 가능은 아무리 커도 29 이하, 단절은 70 이상
     assert risk_score(_res("passable", 0.0), p)[0] <= 29
     assert risk_score(_res("blocked", 1.0), p)[0] >= 70
+    # scale: 같은 판정 안에서 raw 순서가 남는다 (clamp면 둘 다 경계값 29로 같아짐)
+    hi = RiskContext(causes=["차량"], road_width_m=30)
+    a, b = risk_score(_res("passable", 0.2), p, hi)[0], risk_score(_res("passable", 0.4), p, hi)[0]
+    assert 0 <= b < a <= 29
+    clamp = RiskParams(band_mode="clamp")
+    assert risk_score(_res("passable", 0.2), clamp, hi)[0] == risk_score(_res("passable", 0.4), clamp, hi)[0] == 29
     # 보차혼용 도로는 도로폭과 상관없이 detour = shared_road
     assert risk_score(_res(), p, RiskContext(selected_surface="road", road_width_m=4))[1]["terms"]["detour"] == 1.0
     assert risk_score(_res("undetermined", None), p)[0] is None

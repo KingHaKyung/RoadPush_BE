@@ -117,7 +117,8 @@ def test_risk_uses_width_term_and_marks_length_unmeasured():
     r = analyze_passability(with_obstacle(111))
     score, detail = risk_score(r)
     band = detail["band"]
-    assert score == max(band["min"], min(band["max"], round(100 * (1 - r.bottleneck_ratio))))
+    raw = 100 * (1 - r.bottleneck_ratio)
+    assert score == round(band["min"] + raw / 100 * (band["max"] - band["min"]))  # 판정 범위 안에 비례로
     assert detail["terms"]["length"] is None and detail["complete"] is False and "length" in detail["missing"]
     full, d2 = risk_score(r, ctx=RiskContext(length_ratio=1.0, causes=["차량"], road_width_m=25.0))
     assert d2["terms"]["length"] == 1.0 and d2["terms"]["detour"] == 1.0 and d2["terms"]["cause"] == 1.0
