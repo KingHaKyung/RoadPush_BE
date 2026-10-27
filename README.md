@@ -12,10 +12,10 @@
 | [docs/SETUP.md](docs/SETUP.md) | 로컬 개발 환경 설정 (설치 → 실행 → 시연 데이터 → 확인 → 문제 해결) |
 | [docs/GUIDE.md](docs/GUIDE.md) | 처리 흐름, 폴더 구조, 모델 운용, 배포, 제출 준비, 일정 |
 | [docs/API.md](docs/API.md) | API (마스터 문서 4.4 응답 형식), 프론트 필드 매핑 |
-| [docs/specs/API_SPEC.md](docs/specs/API_SPEC.md) | API 명세서 한 페이지 (`.pdf` · `.png` 함께) |
-| [docs/specs/FEATURE_SPEC.md](docs/specs/FEATURE_SPEC.md) | 기능 명세서 한 페이지 (`.pdf` · `.png` 함께) |
+| [docs/specs/API_SPEC.md](docs/specs/API_SPEC.md) | API 명세서 한 페이지 (발표용 가로 슬라이드는 별도 명세서 덱) |
+| [docs/specs/FEATURE_SPEC.md](docs/specs/FEATURE_SPEC.md) | 기능 명세서 한 페이지 (발표용 가로 슬라이드는 별도 명세서 덱) |
 | [docs/architecture/](docs/architecture/) | 서비스 아키텍처 구성도 (Figma 편집용 SVG · 발표용 PNG) |
-| [docs/PRESENTATION_SCRIPT.md](docs/PRESENTATION_SCRIPT.md) | 백엔드 흐름 설명(팀원용 3분) · 발표 대본 · 데모 영상 설명 · 예상 질문 |
+| [docs/PRESENTATION_SCRIPT.md](docs/PRESENTATION_SCRIPT.md) | 서비스 전체 발표 대본 · 3분 요약 · 데모 영상 내레이션 · 예상 질의응답(모델 기술 포함) |
 | [docs/FRONTEND_INTEGRATION.md](docs/FRONTEND_INTEGRATION.md) | 프론트 연결 패치 적용 방법, Supabase → 백엔드 → 프론트 화면 전체 테스트 순서 |
 | [docs/DB.md](docs/DB.md) | 테이블 정의·관계도, Supabase 연결, 스키마 변경 절차 |
 | [docs/PASSABILITY.md](docs/PASSABILITY.md) | 통과 여부·상대 위험도 계산, 상대/절대 수치, 한계와 극복 |
