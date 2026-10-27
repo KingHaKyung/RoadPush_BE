@@ -12,6 +12,9 @@
 | [docs/SETUP.md](docs/SETUP.md) | 로컬 개발 환경 설정 (설치 → 실행 → 시연 데이터 → 확인 → 문제 해결) |
 | [docs/GUIDE.md](docs/GUIDE.md) | 처리 흐름, 폴더 구조, 모델 운용, 배포, 제출 준비, 일정 |
 | [docs/API.md](docs/API.md) | API (마스터 문서 4.4 응답 형식), 프론트 필드 매핑 |
+| [docs/specs/API_SPEC.md](docs/specs/API_SPEC.md) | API 명세서: 엔드포인트별 요청·응답·오류 코드 |
+| [docs/specs/FEATURE_SPEC.md](docs/specs/FEATURE_SPEC.md) | 기능 명세서: F1~F7 기능, 상태 코드, 비기능 요구사항, 프론트 연결 현황 |
+| [docs/architecture/](docs/architecture/) | 시스템 아키텍처 · 서비스 흐름 구성도 (SVG · PNG) |
 | [docs/FRONTEND_INTEGRATION.md](docs/FRONTEND_INTEGRATION.md) | 프론트 연결 패치 적용 방법, Supabase → 백엔드 → 프론트 화면 전체 테스트 순서 |
 | [docs/DB.md](docs/DB.md) | 테이블 정의·관계도, Supabase 연결, 스키마 변경 절차 |
 | [docs/PASSABILITY.md](docs/PASSABILITY.md) | 통과 여부·상대 위험도 계산, 상대/절대 수치, 한계와 극복 |

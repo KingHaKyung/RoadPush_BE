@@ -1,5 +1,7 @@
 # RoadPush API (v1)
 
+> 엔드포인트별 요청·응답·오류 코드 전체는 [specs/API_SPEC.md](specs/API_SPEC.md), 기능 목록은 [specs/FEATURE_SPEC.md](specs/FEATURE_SPEC.md).
+
 기본 주소 `http://localhost:8000/api/v1` · 대화형 문서 `http://localhost:8000/docs`
 프론트 `.env`: `VITE_API_BASE_URL=http://localhost:8000/api/v1`
 
