@@ -16,6 +16,7 @@
 | [docs/specs/FEATURE_SPEC.md](docs/specs/FEATURE_SPEC.md) | 기능 명세서 한 페이지 (발표용 가로 슬라이드는 별도 명세서 덱) |
 | [docs/architecture/](docs/architecture/) | 서비스 아키텍처 구성도 (Figma 편집용 SVG · 발표용 PNG) |
 | [docs/PRESENTATION_SCRIPT.md](docs/PRESENTATION_SCRIPT.md) | 서비스 전체 발표 대본 · 3분 요약 · 데모 영상 내레이션 · 예상 질의응답(모델 기술 포함) |
+| [docs/BACKEND_SCRIPT.md](docs/BACKEND_SCRIPT.md) | 백엔드 발표 대본 (발표 자료 13쪽 순서, 약 10분) · 백엔드 기술 질의응답 |
 | [docs/FRONTEND_INTEGRATION.md](docs/FRONTEND_INTEGRATION.md) | 프론트 연결 패치 적용 방법, Supabase → 백엔드 → 프론트 화면 전체 테스트 순서 |
 | [docs/DB.md](docs/DB.md) | 테이블 정의·관계도, Supabase 연결, 스키마 변경 절차 |
 | [docs/PASSABILITY.md](docs/PASSABILITY.md) | 통과 여부·상대 위험도 계산, 상대/절대 수치, 한계와 극복 |
