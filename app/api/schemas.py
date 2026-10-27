@@ -91,7 +91,10 @@ class ObservationOut(BaseModel):
     occupancy: int | None = Field(None, description="병목 단면 점유율(%)")
     bottleneck_ratio: float | None = Field(None, description="상대 유효폭 = 남은 연속 통로 / 추정 전체 보행폭")
     bottleneck_m_est: float | None = Field(None, description="상대폭 × 구간 실측 보도폭 (실측이 있을 때만)")
-    risk_complete: bool = Field(False, description="false면 길이 항 측정 불가 → 폭 항만 반영한 부분 상대 지표")
+    risk_complete: bool = Field(False, description="false면 측정하지 못한 항(길이 등)을 빼고 낸 부분 상대 지표")
+    risk_grade: str | None = Field(None, description="위험도 등급 코드 (기본 high·medium·low, 기준에서 바꿀 수 있음)")
+    risk_grade_label: str | None = Field(None, description="위험도 등급 이름 (기본 높음·보통·낮음)")
+    risk_policy_version: int | None = Field(None, description="점수를 낸 위험도 기준 버전 (null = 기본 기준)")
     causes: list[str] = []
     uncertainty_code: str | None = None
     provisional: ProvisionalEstimate | None = Field(
@@ -241,6 +244,8 @@ class SiteIn(BaseModel):
     description: str | None = None
     link_id: str | None = None
     sidewalk_width_m: float | None = None
+    road_width_m: float | None = Field(None, gt=0, description="현장 실측 도로폭(m). 비우면 참조 레이어(실폭 우선)")
+    road_lanes: int | None = Field(None, ge=1)
 
 
 class SitePatch(BaseModel):
@@ -250,6 +255,8 @@ class SitePatch(BaseModel):
     lng: float | None = None
     link_id: str | None = None
     sidewalk_width_m: float | None = None
+    road_width_m: float | None = Field(None, gt=0)
+    road_lanes: int | None = Field(None, ge=1)
 
 
 class SiteOut(BaseModel):
@@ -262,6 +269,9 @@ class SiteOut(BaseModel):
     sidewalk_width_m: float | None
     sidewalk_width_source: str | None = None  # field | ref_ngii | ref_building_no | ref_route_approx
     ref_walk_link_id: str | None = None
+    road_width_m: float | None = None
+    road_width_source: str | None = None  # field | ref_rw(실폭) | ref_ngii | ref_notice
+    road_lanes: int | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

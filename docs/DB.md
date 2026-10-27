@@ -175,6 +175,9 @@ erDiagram
 | sidewalk_width_m | float | ✓ | 보도폭(m). 있으면 추정 절대폭을 덧붙임 (판정에는 안 씀) |
 | sidewalk_width_source | varchar(24) | ✓ | `field`(현장 실측·사용자 입력) · `ref_ngii`(성남) · `ref_building_no` · `ref_route_approx`(서울, 참조 레이어) |
 | ref_walk_link_id | varchar(20) | ✓ | 참고: 서울 보행 링크 `ref_walk_link.link_id`(도보 네트워크 LNKG_ID). 표준노드링크 `link_id`와 다른 키 |
+| road_width_m | float | ✓ | 차도 폭(m). 위험도 '차도 우회' 항에만 씀 (판정에는 안 씀) |
+| road_width_source | varchar(24) | ✓ | `field` · `ref_rw`(도로명주소 실폭) · `ref_ngii`(연속수치지형도) · `ref_notice`(고시폭) |
+| road_lanes | integer | ✓ | 왕복 차로 수 (성남 `lanes_total`, 서울 `lanes`) |
 | created_at | timestamptz | | |
 
 ### observations — 관측 (사진 1장 + 위치·시각 + 확정 구간)
@@ -258,6 +261,18 @@ erDiagram
 | author | varchar(64) | ✓ | |
 | created_at | timestamptz | | |
 
+### risk_policies — 위험도 기준 (버전마다 한 행, 가장 큰 version이 현재 기준)
+| 열 | 형식 | NULL | 설명 |
+|---|---|---|---|
+| id | varchar(32) PK | | `risk_` + 12자리 |
+| version | integer UNIQUE | | 1부터. 행이 없으면 기본 기준 (`app/ai_engine/passability/risk.py` `RiskParams`) |
+| params | jsonb | | 가중치·폭 기준·원인별 위험·판정 구간·등급 (`RiskParams`) |
+| note | text | ✓ | 바꾼 이유 |
+| created_by | varchar(64) | ✓ | |
+| created_at | timestamptz | | |
+
+분석의 점수를 낸 기준 버전은 `analyses.evidence.risk.policy_version`에 남습니다.
+
 ### 미포함 항목 (필요할 때 마이그레이션으로 추가)
 - 담당자 계정·권한 (마스터 문서: 임의 확정하지 않음)
 - 별도 파일 참조 테이블 (지금은 `original_key`, `analyses.files`에 저장 키)
@@ -311,6 +326,8 @@ alembic upgrade head --sql                                    # DB에 붙지 않
   - 서울: 20 m 안 보행 링크(횡단보도·지하보도·육교·지하·실내 후보 제외) → `sites.ref_walk_link_id`, 출처 `ref_building_no`
   - 채울 출처는 `REF_WIDTH_SOURCES` (기본 `["ngii","building_no"]`. 서울 `route_approx`는 평균 오차 1.31 m라 제외)
 - `GET /sites/candidates`: `reference_link`(성남, 도로폭·보도 유무·이면도로) / `reference_walk_link`(서울)
+- 도로폭 (`sites.road_width_m`·`road_width_source`·`road_lanes`): 실폭 `road_width_rw_m`이 있으면 `ref_rw`, 없으면 대표 도로폭
+  `road_width_m`(출처 `ref_ngii` 등). 위험도 '차도 우회' 항에만 씁니다.
 - 판정은 여전히 사진 속 **상대폭**으로 합니다. 보도 폭은 "상대폭 × 보도 폭" 추정 절대폭을 덧붙일 때만 씁니다. 참고 등급(`grade_*`)은 쓰지 않습니다.
 - 테이블이 없으면 위 기능만 건너뛰고 나머지는 그대로 동작합니다.
 - 한계: 연속수치지형도 보도폭은 0.5 m 단위 대표값이고 가로수·볼라드를 빼지 않은 폭입니다. 아주 좁은 골목은 표준노드링크에 링크가 없습니다.
@@ -320,7 +337,14 @@ alembic upgrade head --sql                                    # DB에 붙지 않
 ```bash
 python scripts/load_reference.py <CSV 폴더>                                   # .env DATABASE_URL (로컬 SQLite 포함)
 python scripts/load_reference.py --from-db sqlite:///./data/roadpush.db --to "<Session pooler 주소>"   # 로컬에 넣은 것을 Supabase로
+python scripts/load_reference.py --schema-only --to "<주소>"                  # 테이블·컬럼만 (데이터 없이)
+python scripts/load_reference.py --road-width-rw 실폭.csv --refresh-sites      # 실폭만 갱신 후 구간·위험도 다시 채우기
 ```
+
+**실폭 (`road_width_rw_m`)**: v2 원본 스키마에는 없어 백엔드가 `ref_seongnam_link`·`ref_walk_link`에 더한 컬럼입니다
+(`load_reference.py`의 `EXTRA_COLUMNS`, 적재·`--schema-only` 때 자동 추가. SQLite·PostgreSQL 공통).
+v2 데이터의 성남 도로폭은 모두 연속수치지형도(`ngii`)이고 실폭이 없습니다. 도로명주소 실폭도로 면에서 계산한 값을 받으면
+`link_id,road_width_rw_m` CSV로 넣습니다 (`--table ref_walk_link`면 서울 LNKG_ID). 서울 `ref_road_segment.width_rw_m`은 원본에 있습니다.
 
 - 네 테이블을 비우고 다시 넣습니다. PostgreSQL에서는 스키마 파일 전체를 실행해 RLS도 켭니다 (1장 운영 규칙 1).
 - 마이그레이션 환경(`migrations/env.py`)이 `ref_`로 시작하는 테이블을 제외하므로 `alembic check`·autogenerate가 이 테이블을 지우려 하지 않습니다.

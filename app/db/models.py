@@ -56,6 +56,11 @@ class Site(Base):
     sidewalk_width_source: Mapped[str | None] = mapped_column(String(24))
     # 참고: 서울 보행 링크 ref_walk_link.link_id (도보 네트워크 LNKG_ID. 표준노드링크 link_id와 다른 키)
     ref_walk_link_id: Mapped[str | None] = mapped_column(String(20))
+    # 차도 폭(m)·차로 수. 위험도 '차도 우회' 항에 쓴다 (판정에는 안 씀)
+    road_width_m: Mapped[float | None] = mapped_column(Float)
+    # 도로폭 출처: field | ref_rw(도로명주소 실폭) | ref_ngii(연속수치지형도) | ref_notice(고시폭)
+    road_width_source: Mapped[str | None] = mapped_column(String(24))
+    road_lanes: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
@@ -203,4 +208,20 @@ class ObservationNote(Base):
     observation_id: Mapped[str] = mapped_column(ForeignKey("observations.id"), index=True)
     content: Mapped[str] = mapped_column(Text)
     author: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class RiskPolicy(Base):
+    """
+    위험도 기준. 바꿀 때마다 새 버전 행을 덧붙인다 (가장 큰 version이 현재 기준, 이전 기준은 이력).
+    행이 없으면 기본 기준(passability/risk.py RiskParams)을 쓴다
+    """
+
+    __tablename__ = "risk_policies"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id("risk"))
+    version: Mapped[int] = mapped_column(Integer, unique=True)
+    params: Mapped[dict] = mapped_column(Json)
+    note: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

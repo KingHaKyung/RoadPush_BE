@@ -1,7 +1,10 @@
 """분석 1건 실행: DB·파일 저장소에서 입력을 꺼내 AI 모듈에 넘기고, 결과를 새 analysis 행과 파일로 저장한다"""
 
+from sqlalchemy.orm import object_session
+
 from ..ai_engine import pipeline
 from ..db.models import Analysis, Observation
+from . import risk_policy
 from .storage import LocalStorage
 
 
@@ -44,3 +47,6 @@ def run_analysis(storage: LocalStorage, ana: Analysis, obs: Observation) -> None
         "frames": out.frames,
         **out.evidence,
     }
+    # 위험도는 현재 기준(risk_policies)과 구간 도로폭·원인을 넣어 다시 낸다 (엔진 값은 기본 기준·폭 항 위주)
+    params, version = risk_policy.current_params(object_session(obs))
+    ana.risk_score, ana.evidence["risk"] = risk_policy.score(ana, obs.site, params, version)

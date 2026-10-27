@@ -45,6 +45,7 @@ SN_ROWS = [
 
 def _reset():
     reference._has.clear()
+    reference._cols.clear()
     nodelink.links.cache_clear()
 
 
@@ -116,3 +117,26 @@ def test_seongnam_link_matches_whole_city_and_fills_ngii_width(ref_table):
         ref = cands["reference_link"]
         assert ref["link_id"] == "2040391501" and ref["is_backstreet"] is True and ref["has_sidewalk"] is False
         assert cands["reference_walk_link"] is None
+
+
+def test_road_width_prefers_rw_and_refresh_keeps_field(ref_table, tmp_path):
+    """실폭(road_width_rw_m)이 없으면 대표 도로폭(ngii), 실폭을 넣고 다시 채우면 ref_rw. 현장 실측은 유지"""
+    assert loader.ensure_columns(engine) == []  # create_tables가 이미 더함 (두 번 해도 그대로)
+    with TestClient(app) as c:
+        main = c.post(f"{API}/sites", json={"name": "성남대로", "lat": 37.386851, "lng": 127.127334}).json()
+        assert (main["road_width_m"], main["road_width_source"], main["road_lanes"]) == (22.9, "ref_ngii", 6)
+        field = c.post(
+            f"{API}/sites", json={"name": "실측", "lat": 37.386851, "lng": 127.127334, "road_width_m": 18.0}
+        ).json()
+        assert (field["road_width_m"], field["road_width_source"]) == (18.0, "field")
+
+        csv_path = tmp_path / "rw.csv"
+        csv_path.write_text("link_id,road_width_rw_m\n2060113500,21.5\n999,3.0\n", encoding="utf-8")
+        assert loader.load_road_width_rw(engine, csv_path, "ref_seongnam_link") == (1, 1)
+        loader.refresh_sites(str(engine.url))
+        got = {s["id"]: s for s in c.get(f"{API}/sites").json()}
+        assert (got[main["id"]]["road_width_m"], got[main["id"]]["road_width_source"]) == (21.5, "ref_rw")
+        assert got[main["id"]]["sidewalk_width_m"] == 4.0
+        assert (got[field["id"]]["road_width_m"], got[field["id"]]["road_width_source"]) == (18.0, "field")
+        ref = c.get(f"{API}/sites/candidates", params={"lat": 37.386851, "lng": 127.127334}).json()["reference_link"]
+        assert ref["road_width_rw_m"] == 21.5 and ref["road_width_m"] == 22.9

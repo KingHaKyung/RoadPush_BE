@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..config import get_settings
 from ..db import get_db
 from ..db.models import Action, Observation, Site
-from ..services import reference, views
+from ..services import reference, risk_policy, views
 from ..services.nodelink import nearest_links
 from .deps import file_url_for
 from .schemas import ActionOut, CompareOut, ObservationOut, SiteIn, SiteOut, SitePatch
@@ -106,6 +106,10 @@ def update_site(site_id: str, body: SitePatch, db: Session = Depends(get_db)):
         setattr(site, k, v)
     if "sidewalk_width_m" in data:  # 사용자가 고친 폭은 현장 값으로 본다
         site.sidewalk_width_source = "field" if data["sidewalk_width_m"] is not None else None
+    if "road_width_m" in data:
+        site.road_width_source = "field" if data["road_width_m"] is not None else None
+    if "road_width_m" in data or "road_lanes" in data:  # 위험도 '차도 우회' 항이 바뀐다
+        risk_policy.recompute(db, *risk_policy.current_params(db), site_id=site.id)
     db.commit()
     return site
 

@@ -1,7 +1,7 @@
 import numpy as np
 
 from app.ai_engine.labels import L
-from app.ai_engine.passability.risk import risk_score
+from app.ai_engine.passability.risk import RiskContext, risk_score
 from app.ai_engine.passability.rules import Policy, analyze_passability
 from app.ai_engine.scene import fuse_frames
 from app.ai_engine.types import SceneResult
@@ -116,10 +116,12 @@ def test_reference_width_only_adds_estimate():
 def test_risk_uses_width_term_and_marks_length_unmeasured():
     r = analyze_passability(with_obstacle(111))
     score, detail = risk_score(r)
-    assert score == round(100 * (1 - r.bottleneck_ratio))
-    assert detail["length_term"] is None and detail["complete"] is False
-    full, d2 = risk_score(r, length_ratio=1.0)
-    assert d2["complete"] is True and full != score
+    band = detail["band"]
+    assert score == max(band["min"], min(band["max"], round(100 * (1 - r.bottleneck_ratio))))
+    assert detail["terms"]["length"] is None and detail["complete"] is False and "length" in detail["missing"]
+    full, d2 = risk_score(r, ctx=RiskContext(length_ratio=1.0, causes=["차량"], road_width_m=25.0))
+    assert d2["terms"]["length"] == 1.0 and d2["terms"]["detour"] == 1.0 and d2["terms"]["cause"] == 1.0
+    assert "length" not in d2["missing"] and full >= score
 
     score, detail = risk_score(analyze_passability(with_obstacle(141, label=L.TRANSIENT)))
     assert score is None  # 측정 불가를 0점으로 쓰지 않음

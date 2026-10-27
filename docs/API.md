@@ -36,7 +36,20 @@
 | | `GET /files/{key}` | 원본·overlay (응답 `images`에 전체 URL로 들어감) |
 
 `GET /sites/candidates` 응답에는 `nearby_links`(성남 표준노드링크) 외에 `reference_walk_link`(서울 보행 링크 참조 레이어, 없으면 `null`)가 들어갑니다.
-구간 응답(`SiteOut`)에는 `sidewalk_width_source`, `ref_walk_link_id`가 있습니다 (docs/DB.md 6장).
+구간 응답(`SiteOut`)에는 `sidewalk_width_source`, `ref_walk_link_id`, `road_width_m`·`road_width_source`·`road_lanes`가 있습니다 (docs/DB.md 6장).
+도로폭은 실폭(`ref_rw`)이 있으면 그것, 없으면 대표 도로폭(`ref_ngii` 등)입니다. `POST /sites`·`PATCH /sites/{id}`에 `road_width_m`을 주면 현장 값(`field`)으로 저장하고,
+PATCH로 도로폭·차로 수를 바꾸면 그 구간 분석의 위험도를 다시 냅니다.
+
+**위험도 기준** (프론트 설정 화면용. 식과 기본값은 [PASSABILITY.md 5장](PASSABILITY.md#5-상대-위험도-riskpy))
+
+| 메서드·경로 | 설명 |
+|---|---|
+| `GET /risk-policy` | 현재 기준 `{version, params, defaults, terms, note, created_by, created_at}`. 저장한 기준이 없으면 `version: null` + 기본값 |
+| `GET /risk-policy/history` | 저장한 기준 목록 (최신 먼저) |
+| `PUT /risk-policy` | `{params, note, actor, apply_to_existing=true}` → 새 버전으로 저장, 완료된 분석 점수 재계산 (`recomputed` 건수). 잘못된 값은 422 |
+| `POST /risk-policy/preview` | `{params}` → 저장하지 않고 관측별 지금 점수·등급과 바뀔 점수·등급, 등급 분포 |
+
+`params`(`RiskParams`)의 각 항목 설명·범위는 `/docs` 스키마에 있습니다. 되돌리기는 `defaults`나 `history`의 `params`를 다시 `PUT`합니다.
 
 **배포용 지도·CCTV 프록시** (`/api/v1` 밖, 프론트 개발 서버 프록시와 같은 경로. 문서 화면에는 안 나옴)
 
@@ -143,7 +156,9 @@ sequenceDiagram
   "occupancy": 45,                           // 가장 좁은 단면의 점유율(%)
   "bottleneck_ratio": 0.55,                  // 상대 유효폭 = 남은 연속 통로 / 추정 전체 보행폭
   "bottleneck_m_est": 1.32,                  // 구간 실측 보도폭이 있을 때만 (판정에는 안 씀)
-  "risk_complete": false,                    // false = 길이 항 측정 불가, 폭 항만 반영한 '부분 상대 지표'
+  "risk_complete": false,                    // false = 측정 못 한 항(길이 등)을 빼고 낸 '부분 상대 지표'
+  "risk_grade": "medium", "risk_grade_label": "보통",  // 위험도 기준의 등급 (기본 high 높음 · medium 보통 · low 낮음)
+  "risk_policy_version": null,               // 점수를 낸 기준 버전 (null = 기본 기준)
   "causes": ["차량"],                         // 차량·공사시설·적치물·PM (시각 클래스 4개. 상태를 단정하지 않음)
   "uncertainty_code": null,                  // roadpush_ai: surface_uncertain | boundary_review | boundary_failed | occupancy_unverified | low_coverage | night
                                              // dummy: occluded | mixed | low_coverage | low_confidence | night  (PASSABILITY.md)

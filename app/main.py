@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from .api import actions, map, observations, proxy, sites
+from .api import actions, map, observations, proxy, risk, sites
 from .config import get_settings
 from .db import init_db
 from .services import worker
@@ -45,6 +45,7 @@ app.include_router(actions.router, prefix=API)  # /observations/bulk-action이 /
 app.include_router(observations.router, prefix=API)
 app.include_router(sites.router, prefix=API)
 app.include_router(map.router, prefix=API)
+app.include_router(risk.router, prefix=API)
 app.include_router(proxy.router)  # 프론트 개발 서버 프록시와 같은 경로 (/vworld/wmts, /api/utic, /api/its)
 
 settings.storage_dir.mkdir(parents=True, exist_ok=True)
