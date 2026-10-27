@@ -126,6 +126,7 @@ curl -s https://1-2-3-4.sslip.io/api/v1/health
 ```
 
 ### ⑦ AI 코드·모델 올리기
+처음 설치(①~⑤) 뒤에는 **⑨ 배포 스크립트**가 아래 묶기·보내기·설치·재시작을 한 번에 합니다. 수동으로 할 때:
 서버에는 AI 저장소를 clone하지 않고 **실행에 필요한 파일만** 복사합니다 (`.git`·인증 정보가 서버에 없음).
 PC(`C:\dev`)에서 묶습니다. 모델은 AI 저장소 `models/`(Git 제외)에 먼저 넣어 둡니다:
 ```powershell
@@ -160,6 +161,29 @@ PC에서 분석까지 끝낸 결과를 그대로 쓰려면 (다시 분석하지 
 python scripts/copy_service_data.py --to "<Session pooler 주소>"
 # PC에서: 사진·overlay 파일 → 서버 STORAGE_DIR (DB에는 저장 키만 있음)
 scp -r storage/observations storage/analyses ubuntu@<VM IP>:~/RoadPush_BE/storage/
+```
+
+### ⑨ 다시 배포할 때 (배포 스크립트, PC에서)
+백엔드는 GitHub에서 `git pull`, AI는 `.git` 없이 실행 파일만 묶어 보냅니다 (서버에 Git 인증 정보를 두지 않음).
+어떤 AI 코드로 분석했는지 남도록 AI 커밋 번호를 `RoadPush_AI/VERSION.json`에 적어 함께 보내고, `/api/v1/health`에 보입니다.
+```powershell
+cd C:\dev\RoadPush_BE      # RoadPush_AI가 C:\dev\RoadPush_AI에 나란히 있어야 함
+.\deploy\deploy.ps1 -Server <공인 IP> -Key <SSH 키>               # 백엔드 + AI 코드·모델
+.\deploy\deploy.ps1 -Server <공인 IP> -Key <SSH 키> -SkipModels   # 모델은 그대로 두고 코드만 (모델 851 MB)
+.\deploy\deploy.ps1 -Server <공인 IP> -Key <SSH 키> -SkipAi       # 백엔드만
+.\deploy\deploy.ps1 -Server <공인 IP> -Key <SSH 키> -WithStorage  # PC storage/ 사진·overlay도 (copy_service_data.py와 함께)
+.\deploy\deploy.ps1 -Server <공인 IP> -DryRun                     # 묶기만 하고 보내지 않음
+```
+1. 백엔드에 커밋 안 된 변경이 없고 `origin/main`과 같은지 확인 (다르면 멈춤 → push 먼저)
+2. AI 저장소 커밋·변경 여부를 `VERSION.json`으로 남기고 묶음 (커밋 안 된 변경이 있으면 멈춤, `-AllowDirtyAi`로 무시)
+3. 서버로 보내고 [`deploy/server_update.sh`](../deploy/server_update.sh) 실행: AI 풀기 → `git pull` → 패키지 → `systemctl restart` → health
+   (`-CheckModel`이면 끝에 `check_model.py`)
+4. `https://<IP>.sslip.io/api/v1/health`의 `backend.commit`·`ai.commit`이 PC와 같은지 확인 (`-Domain`으로 도메인 지정)
+
+```json
+{"status": "ok", "analysis_engine": "roadpush_ai",
+ "backend": {"commit": "828a361…", "dirty": false, "source": "git"},
+ "ai": {"commit": "508221c…", "dirty": false, "branch": "main", "packaged_at": "…", "models": true, "source": "package"}}
 ```
 
 ## 4. 확인 목록

@@ -30,6 +30,28 @@ def test_vercel_preview_origin_allowed():
         assert "access-control-allow-origin" not in bad.headers
 
 
+def test_health_shows_backend_and_ai_commit(monkeypatch, tmp_path):
+    """배포 서버의 AI 코드는 .git 없이 묶어 보내므로 배포 스크립트가 넣은 VERSION.json을 읽는다"""
+    from app.services import versions
+
+    ai = tmp_path / "RoadPush_AI"
+    ai.mkdir()
+    (ai / "VERSION.json").write_text('{"commit": "abc1234", "dirty": false, "models": true}', encoding="utf-8")
+    monkeypatch.setattr(get_settings(), "roadpush_ai_root", ai)
+    versions.ai_version.cache_clear()
+    try:
+        with TestClient(app) as c:
+            h = c.get(f"{API}/health").json()
+        assert h["ai"] == {"commit": "abc1234", "dirty": False, "models": True, "source": "package"}
+        assert h["backend"]["source"] == "git" and len(h["backend"]["commit"]) == 40
+
+        monkeypatch.setattr(get_settings(), "roadpush_ai_root", tmp_path / "없음")
+        versions.ai_version.cache_clear()
+        assert versions.ai_version()["commit"] is None
+    finally:
+        versions.ai_version.cache_clear()
+
+
 def _jpg() -> bytes:
     import cv2
     import numpy as np

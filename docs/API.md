@@ -12,7 +12,7 @@
 
 | 기능 | 메서드 · 경로 | 설명 |
 |---|---|---|
-| | `GET /health` | 상태·사용 모델 |
+| | `GET /health` | 상태·사용 모델·코드 버전 (`backend`·`ai`: `commit`, 개발 PC는 `dirty`(git), 배포 서버 AI는 `packaged_at`·`models`(VERSION.json)) |
 | F1 | `POST /observations/inspect` | 사진 EXIF의 촬영시각·GPS + (GPS가 있으면) 주변 구간 후보 |
 | F1 | `GET /sites/candidates?lat=&lng=&radius_m=` | 검색 반경 안 기존 구간 후보 (최근 사진 썸네일 포함) |
 | F1·F2 | `POST /observations` | 관측 등록 (multipart). **기존 구간(`site_id`) 또는 신규 구간(`new_site_name`) 필수**. 202 응답 후 비동기 분석 |

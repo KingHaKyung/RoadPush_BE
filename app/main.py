@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from .api import actions, map, observations, proxy, risk, sites
 from .config import get_settings
 from .db import init_db
-from .services import worker
+from .services import versions, worker
 
 logging.basicConfig(level=logging.INFO)
 settings = get_settings()
@@ -65,4 +65,7 @@ def health():
         "status": "ok",
         "analysis_engine": settings.analysis_engine,
         "obstacle_causes": settings.analysis_engine == "roadpush_ai",
+        # 코드 버전: {"commit", "dirty"(git) 또는 "packaged_at"(배포 묶음), "source": git | package}
+        "backend": versions.backend_version(),
+        "ai": versions.ai_version(),
     }
