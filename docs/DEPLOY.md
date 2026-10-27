@@ -154,6 +154,14 @@ python scripts/seed_demo.py --base https://1-2-3-4.sslip.io/api/v1
 ```
 또는 화면에서 실제 사진을 등록합니다. 분석이 끝난 상태로 두고 심사를 받습니다.
 
+PC에서 분석까지 끝낸 결과를 그대로 쓰려면 (다시 분석하지 않아 결과가 PC와 같음):
+```bash
+# PC에서: 서비스 데이터(DB 행) → Supabase. 대상이 비어 있어야 함 (--replace로 덮어쓰기)
+python scripts/copy_service_data.py --to "<Session pooler 주소>"
+# PC에서: 사진·overlay 파일 → 서버 STORAGE_DIR (DB에는 저장 키만 있음)
+scp -r storage/observations storage/analyses ubuntu@<VM IP>:~/RoadPush_BE/storage/
+```
+
 ## 4. 확인 목록
 
 - [ ] `https://<도메인>/api/v1/health`가 브라우저에서 열림 (자물쇠 표시)
