@@ -254,10 +254,10 @@ Table Editor → `actions`, `action_logs`에 방금 바꾼 처리 상태가 들�
 | `/api/utic/player` | vite 개발 서버 (등록 IP PC) | **없음** → 선택: 백엔드로 rewrite |
 
 UTIC는 등록 IP에서만 응답해서 고정 IP가 없는 Vercel 함수로는 할 수 없습니다. 배포에서도 UTIC 영상을 쓰려면
-`vercel.json`에 아래 한 줄을 넣고, 백엔드 VM 공인 IP를 UTIC에 등록하고, 백엔드 `.env`에 `UTIC_API_KEY`를 넣습니다.
+`vercel.json`에 아래 한 줄을 넣고, 백엔드 노트북의 공인 IP를 UTIC에 등록하고, 백엔드 `.env`에 `UTIC_API_KEY`를 넣습니다.
 
 ```json
-{ "source": "/api/utic/:path*", "destination": "https://<백엔드 주소>/api/utic/:path*" }
+{ "source": "/api/utic/:path*", "destination": "https://desktop-han01.tail5a740d.ts.net/api/utic/:path*" }
 ```
 
 UTIC 영상 재생 자체도 등록 IP에서만 될 수 있어, 심사위원 PC에서는 ITS CCTV(IP 제한 없음)를 기본으로 봅니다.

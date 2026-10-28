@@ -66,7 +66,7 @@ python scripts/seed_demo.py       # 다른 터미널에서: 시연 데이터 넣
 | 응답 형식 | 마스터 문서 4.4 공통 분석 응답 + 화면용 필드 ([API.md](docs/API.md)) |
 | 사진·overlay | 응답 `images`의 전체 URL (`/files/...`) |
 | 허용 출처(CORS) | `http://localhost:5173`, `https://road-push-fe.vercel.app` (`.env`의 `CORS_ORIGINS`) |
-| 배포 | 프론트가 HTTPS(Vercel)라 백엔드도 HTTPS 주소 필요 ([GUIDE.md 5장](docs/GUIDE.md#테스트-url-배포-구성)) |
+| 배포 | 프론트 Vercel · 백엔드+AI 노트북(Tailscale Funnel HTTPS) · DB Supabase ([DEPLOY.md](docs/DEPLOY.md)) |
 
 ## 화면별 API
 

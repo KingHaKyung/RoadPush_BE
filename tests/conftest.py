@@ -12,4 +12,5 @@ os.environ["ANALYSIS_ENGINE"] = "dummy"
 # (코드 위치는 tests/test_roadpush_ai.py가 sys.path에 넣는다)
 os.environ.setdefault("ROADPUSH_AI_ROOT", str(_tmp / "roadpush_ai_root"))
 os.environ["RUN_WORKER_IN_API"] = "false"
+os.environ["PUBLIC_BASE_URL"] = ""  # 배포용 .env 값이 있어도 사진 주소는 테스트 서버 주소로
 os.environ["NODELINK_PATH"] = str(Path(__file__).resolve().parents[1] / "data/roadpush_seongnam_nodelink.geojson")

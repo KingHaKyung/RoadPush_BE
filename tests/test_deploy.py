@@ -10,7 +10,7 @@ ORIGIN = "https://road-push-fe-git-feat-x-kinghakyung.vercel.app"
 
 
 def test_public_base_url_makes_https_image_urls(monkeypatch):
-    monkeypatch.setattr(get_settings(), "public_base_url", "https://1-2-3-4.sslip.io/")
+    monkeypatch.setattr(get_settings(), "public_base_url", "https://desktop-han01.tail5a740d.ts.net/")
     with TestClient(app) as c:
         site = c.post(f"{API}/sites", json={"name": "배포 확인", "lat": 37.3868, "lng": 127.1273}).json()
         r = c.post(
@@ -19,7 +19,7 @@ def test_public_base_url_makes_https_image_urls(monkeypatch):
             files={"file": ("a.jpg", _jpg(), "image/jpeg")},
         )
         assert r.status_code == 202, r.text
-        assert r.json()["images"]["original"].startswith("https://1-2-3-4.sslip.io/files/")
+        assert r.json()["images"]["original"].startswith("https://desktop-han01.tail5a740d.ts.net/files/")
 
 
 def test_vercel_preview_origin_allowed():
@@ -31,19 +31,18 @@ def test_vercel_preview_origin_allowed():
 
 
 def test_health_shows_backend_and_ai_commit(monkeypatch, tmp_path):
-    """배포 서버의 AI 코드는 .git 없이 묶어 보내므로 배포 스크립트가 넣은 VERSION.json을 읽는다"""
+    """백엔드·AI 저장소의 git 커밋을 보여 주고, AI 폴더가 없거나 git이 아니면 commit=None"""
     from app.services import versions
 
     ai = tmp_path / "RoadPush_AI"
     ai.mkdir()
-    (ai / "VERSION.json").write_text('{"commit": "abc1234", "dirty": false, "models": true}', encoding="utf-8")
     monkeypatch.setattr(get_settings(), "roadpush_ai_root", ai)
     versions.ai_version.cache_clear()
     try:
         with TestClient(app) as c:
             h = c.get(f"{API}/health").json()
-        assert h["ai"] == {"commit": "abc1234", "dirty": False, "models": True, "source": "package"}
-        assert h["backend"]["source"] == "git" and len(h["backend"]["commit"]) == 40
+        assert h["ai"]["commit"] is None and "git" in h["ai"]["error"]
+        assert len(h["backend"]["commit"]) == 40 and isinstance(h["backend"]["dirty"], bool)
 
         monkeypatch.setattr(get_settings(), "roadpush_ai_root", tmp_path / "없음")
         versions.ai_version.cache_clear()

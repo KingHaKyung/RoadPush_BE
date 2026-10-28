@@ -144,19 +144,21 @@ docs/
 ```mermaid
 flowchart LR
     U["심사위원·담당자<br/>브라우저"] -->|HTTPS| FE["프론트<br/>road-push-fe.vercel.app"]
-    FE -->|"HTTPS API 호출<br/>VITE_API_BASE_URL"| BE["백엔드 + 분석 워커<br/>클라우드 VM (CPU)"]
+    FE -->|"HTTPS API 호출<br/>VITE_API_BASE_URL"| TS["Tailscale Funnel<br/>*.ts.net"]
+    TS --> BE["백엔드 + AI 분석 워커<br/>백엔드 담당 노트북 (GPU)"]
     BE -->|"Session pooler"| DB[("Supabase<br/>PostgreSQL")]
     BE --> ST["storage/<br/>원본·overlay"]
 ```
 
-- 프론트는 이미 Vercel(HTTPS)에 배포되어 있습니다. HTTPS 페이지는 HTTP API를 부를 수 없으므로(브라우저 혼합 콘텐츠 차단)
-  **백엔드도 HTTPS 주소**가 필요합니다. VM 앞에 리버스 프록시(Caddy 등)로 인증서를 붙이거나, HTTPS를 기본 제공하는 호스팅을 씁니다.
-- 백엔드 `.env`: `DATABASE_URL`(Supabase), `CORS_ORIGINS`에 `https://road-push-fe.vercel.app` 포함(기본값에 들어 있음)
-- 프론트 Vercel 환경 변수: `VITE_API_BASE_URL=https://<백엔드 주소>/api/v1`
-- 지도·도로망·ITS CCTV는 프론트 Vercel 함수가 처리합니다. UTIC 영상만 고정 IP가 필요해 선택으로 백엔드에 넘깁니다.
-- 설치·HTTPS(Caddy)·자동 실행·확인 목록: **[DEPLOY.md](DEPLOY.md)**
-- 심사 기간(11월 중순까지) 내내 켜져 있어야 하므로 노트북 서버는 쓰지 않습니다. CPU에서는 사진 1장 분석에 수십 초~수 분이 걸릴 수 있어 메모리 8GB 이상 VM과 미리 분석해 둔 시연 데이터를 권장합니다 (4장).
-- 심사위원이 바로 볼 수 있게 분석이 끝난 시연 데이터를 미리 넣어 둡니다 (`scripts/seed_demo.py --base https://<백엔드 주소>/api/v1` 또는 실제 사진 등록).
+- 프론트는 Vercel(HTTPS)에 배포되어 있습니다. HTTPS 페이지는 HTTP API를 부를 수 없으므로(브라우저 혼합 콘텐츠 차단)
+  백엔드도 HTTPS 주소가 필요합니다. Tailscale Funnel이 노트북의 백엔드(8000)를 고정 HTTPS 주소
+  `https://desktop-han01.tail5a740d.ts.net`으로 열어 줍니다.
+- 백엔드 `.env`: `DATABASE_URL`(Supabase), `PUBLIC_BASE_URL`(공개 주소). `CORS_ORIGINS`에 Vercel 주소는 기본값에 들어 있습니다.
+- 프론트 Vercel 환경 변수: `VITE_API_BASE_URL=https://desktop-han01.tail5a740d.ts.net/api/v1`
+- 지도·도로망·ITS CCTV는 프론트 Vercel 함수가 처리합니다.
+- 설정·다시 배포·확인 목록: **[DEPLOY.md](DEPLOY.md)**
+- 심사 기간(11월 중순까지) 내내 노트북·백엔드·Tailscale이 켜져 있어야 합니다.
+- 심사위원이 바로 볼 수 있게 분석이 끝난 시연 데이터를 Supabase에 넣어 둡니다.
 
 ## 6. 일정 (10/21 ~ 10/31)
 
@@ -179,7 +181,7 @@ flowchart LR
 1. 임계값(60%/30%)·위험도 가중치 — 10/24 보정 후 확정
 2. 구간 후보 검색 반경 (기본 50 m) — 실제 GPS 오차 보고 조정
 3. 위험정보 유효시간 (답변서1: 팀 결정). 현재는 "최신 촬영 관측"만 보여 주고 만료는 없음
-4. 배포 서버 (VM 종류)
+4. 배포 — 노트북 + Tailscale Funnel로 결정 ([DEPLOY.md](DEPLOY.md))
 5. 저장소 공개 여부와 데이터·가중치 사용 조건 (AI Hub 수락 조건·국외 반출 금지, Mask2Former·Mapillary Vistas 조건, Ultralytics AGPL)
 6. 직접 촬영 사진의 얼굴·번호판 비식별 방법 (답변서2: 필수)
 7. 장애물 클래스 분리 — 모델 팀 확정안은 vehicle·construction·debris·micromobility. 오토바이·입간판·쓰레기 분리 여부 확인 중이며, 백엔드 매핑은 두 경우 모두 처리 ([FRONTEND_INTEGRATION.md 2-2](FRONTEND_INTEGRATION.md#2-2-원인-배지-이름-causes))

@@ -65,7 +65,7 @@ def health():
         "status": "ok",
         "analysis_engine": settings.analysis_engine,
         "obstacle_causes": settings.analysis_engine == "roadpush_ai",
-        # 코드 버전: {"commit", "dirty"(git) 또는 "packaged_at"(배포 묶음), "source": git | package}
+        # 코드 버전: {"commit", "dirty"} (백엔드·AI 저장소의 git)
         "backend": versions.backend_version(),
         "ai": versions.ai_version(),
     }
