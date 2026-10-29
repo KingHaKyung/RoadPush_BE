@@ -305,3 +305,42 @@ def test_worker_fills_area_and_addr(monkeypatch):
         drain()
         o = c.get(f"{API}/observations/{oid}").json()
         assert o["processing_status"] == "completed" and o["area"] is None
+
+
+def test_analysis_records_timings():
+    with TestClient(app) as c:
+        oid = _post(c, seed=21, new_site_name="처리 시간 구간").json()["observation_id"]
+        drain()
+        ana = c.get(f"{API}/observations/{oid}/analyses").json()[0]
+        assert ana["status"] == "completed" and ana["started_at"] is not None
+        t = ana["timings"]
+        assert {"queue_wait", "address", "ai", "save_files", "risk", "total"} <= set(t)
+        assert t["total"] >= t["ai"] >= 0 and t["queue_wait"] >= 0
+        assert ana["evidence"]["timings"] == t
+
+
+def test_worker_survives_errors(monkeypatch):
+    """DB 연결이 잠깐 끊겨도(예: DNS 실패) 워커 스레드가 죽지 않고 다시 돈다"""
+    import threading
+
+    monkeypatch.setattr(worker, "MAX_BACKOFF_SEC", 0.01)
+    monkeypatch.setattr(worker.get_settings(), "worker_poll_sec", 0.001)
+    stop, calls = threading.Event(), []
+
+    def flaky():
+        calls.append(1)
+        if len(calls) < 3:
+            raise RuntimeError("failed to resolve host")
+        stop.set()
+        return False
+
+    monkeypatch.setattr(worker, "run_once", flaky)
+    worker.loop(stop)
+    assert len(calls) == 3 and "failed to resolve host" in worker._state["last_error"]
+
+
+def test_health_reports_worker():
+    with TestClient(app) as c:
+        w = c.get(f"{API}/health").json()["worker"]
+        assert w["alive"] is None  # 테스트는 API 안에서 워커를 돌리지 않음
+        assert isinstance(w["pending"], int) and isinstance(w["processing"], int)

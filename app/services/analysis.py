@@ -1,5 +1,7 @@
 """분석 1건 실행: DB·파일 저장소에서 입력을 꺼내 AI 모듈에 넘기고, 결과를 새 analysis 행과 파일로 저장한다"""
 
+from time import perf_counter
+
 from sqlalchemy.orm import object_session
 
 from ..ai_engine import pipeline
@@ -8,11 +10,14 @@ from . import risk_policy
 from .storage import LocalStorage
 
 
-def run_analysis(storage: LocalStorage, ana: Analysis, obs: Observation) -> None:
+def run_analysis(storage: LocalStorage, ana: Analysis, obs: Observation, timings: dict | None = None) -> None:
+    """timings가 있으면 단계별 처리 시간(초)을 채운다: ai, ai_stages(AI가 잰 단계별), save_files, risk"""
+    t = timings if timings is not None else {}
     mask_key = f"observations/{obs.id}/mask.png"
     mask = storage.read_image(mask_key) if obs.media_type == "image" and storage.path(mask_key).exists() else None
 
     base = f"analyses/{ana.id}"
+    step = perf_counter()
     out = pipeline.analyze(
         storage.path(obs.original_key),
         obs.media_type,
@@ -24,10 +29,16 @@ def run_analysis(storage: LocalStorage, ana: Analysis, obs: Observation) -> None
         input_profile="cctv" if obs.source == "cctv" else "image_upload",
         precomputed_mask=mask,
     )
+    t["ai"] = round(perf_counter() - step, 3)
+    stages = ((out.evidence.get("response") or {}).get("diagnostics") or {}).get("stage_timings_s")
+    if stages:
+        t["ai_stages"] = {k: round(v, 3) for k, v in stages.items()}
     res = out.result
 
+    step = perf_counter()
     ext = {"class_map": "png", "surface_overlay": "jpg", "obstacle_overlay": "jpg"}
     ana.files = {k: storage.put_image(f"{base}/{k}.{ext[k]}", img) for k, img in out.images.items()}
+    t["save_files"] = round(perf_counter() - step, 3)
     ana.model_version = out.model_version
     ana.rule_version = out.rule_version
     ana.passability = res.verdict
@@ -48,5 +59,7 @@ def run_analysis(storage: LocalStorage, ana: Analysis, obs: Observation) -> None
         **out.evidence,
     }
     # 위험도는 현재 기준(risk_policies)과 구간 도로폭·원인을 넣어 다시 낸다 (엔진 값은 기본 기준·폭 항 위주)
+    step = perf_counter()
     params, version = risk_policy.current_params(object_session(obs))
     ana.risk_score, ana.evidence["risk"] = risk_policy.score(ana, obs.site, params, version)
+    t["risk"] = round(perf_counter() - step, 3)

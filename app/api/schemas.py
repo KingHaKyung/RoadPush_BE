@@ -134,7 +134,11 @@ class AnalysisOut(BaseModel):
     evidence: dict
     files: dict
     created_at: datetime
+    started_at: datetime | None = None
     finished_at: datetime | None
+    timings: dict | None = Field(
+        None, description="처리 시간(초): queue_wait·address·ai·ai_stages·save_files·risk·total"
+    )
 
     model_config = {"from_attributes": True, "protected_namespaces": ()}
 

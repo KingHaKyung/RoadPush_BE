@@ -10,6 +10,8 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./data/roadpush.db"
     storage_dir: Path = Path("./storage")
+    # 로그 파일 폴더 (roadpush.log, 10 MB씩 5개까지)
+    log_dir: Path = Path("./logs")
     # 프론트 개발 서버 + Vercel 배포 주소
     cors_origins: list[str] = ["http://localhost:5173", "https://road-push-fe.vercel.app"]
     # Vercel 미리보기 주소(road-push-fe-git-<브랜치>-….vercel.app)도 허용. 비우면 cors_origins만

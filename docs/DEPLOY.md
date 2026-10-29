@@ -104,8 +104,11 @@ Vercel 환경 변수 `VITE_API_BASE_URL=https://desktop-han01.tail5a740d.ts.net/
    ```json
    {"status": "ok", "analysis_engine": "roadpush_ai",
     "backend": {"commit": "…", "dirty": false},
-    "ai": {"commit": "…", "dirty": false}}
+    "ai": {"commit": "…", "dirty": false},
+    "worker": {"alive": true, "pending": 0, "processing": 0, "last_error": null}}
    ```
+   `worker.alive`가 `false`이면 업로드는 받아도 분석이 멈춘 상태이므로 백엔드를 다시 실행합니다.
+   `last_error`에는 워커가 마지막으로 만난 오류(예: 네트워크가 끊겨 DB 주소를 못 찾음)가 남습니다. 오류가 나도 워커는 최대 60초 간격으로 다시 시도합니다.
 
 프론트 코드가 바뀐 경우는 Vercel이 프론트 저장소 push로 자동 배포하므로 백엔드에서 할 일이 없습니다.
 
@@ -118,7 +121,35 @@ Vercel 환경 변수 `VITE_API_BASE_URL=https://desktop-han01.tail5a740d.ts.net/
 - [ ] 사진 1장을 등록하면 "분석 대기"에서 결과로 바뀜
 - [ ] 휴대폰(다른 네트워크)에서도 열림
 
-## 5. 주의
+## 5. 로그·처리 시간
+
+백엔드 로그는 콘솔과 함께 `logs/roadpush.log`에 남습니다 (10 MB씩 5개까지, Git 제외). 창을 닫아도 기록이 남습니다.
+```powershell
+Get-Content C:\dev\RoadPush_BE\logs\roadpush.log -Wait -Tail 50      # 실시간으로 보기
+Select-String "업로드|분석 완료|분석 failed|워커 오류" C:\dev\RoadPush_BE\logs\roadpush.log
+```
+
+사진 1장이 올라오면 이렇게 남습니다.
+```
+roadpush.upload: 업로드 obs_… (site_…) 4230 KB · 파일 읽기·확인 111ms · 원본 저장 16ms · DB 저장 21ms
+roadpush.http:   POST /api/v1/observations 202 300ms
+roadpush.worker: 분석 완료 ana_… (obs_…) 시도 1 · 대기 0.3s · 주소 0.14s · AI 8.2s(surface 2.99 / obstacle 4.16 / …) · 저장 0.01s · 위험도 0.06s · 총 8.4s · 판정 passable 위험도 12 · DB 저장 0.03s
+```
+| 항목 | 뜻 |
+|---|---|
+| `roadpush.http` | `/api/v1` 요청마다 상태·처리 시간 (업로드 전송 포함). 5초마다 오는 목록 조회는 1초 이상 걸렸거나 실패했을 때만 |
+| 대기 | 등록 → 워커가 집을 때까지 (`analyses.created_at` → `started_at`) |
+| 주소 | 행정구역·주소 자동 채우기 (브이월드) |
+| AI | RoadPush_AI 추론 전체. 괄호 안은 AI가 잰 단계: surface(보행면·통로), obstacle(장애물 YOLO), attribution_and_response |
+| 저장 · 위험도 | overlay 파일 저장 · 현재 기준으로 위험도 다시 계산 |
+| 총 | 워커가 집은 뒤 결과를 낼 때까지 |
+
+- 같은 값(초)이 DB `analyses.evidence.timings`에도 저장되며 `GET /api/v1/observations/{id}/analyses`의 `timings`·`started_at`로 볼 수 있습니다.
+- 업로드할 때 모델 학습은 하지 않습니다 (학습은 RoadPush_AI에서 미리 함). 시간을 재는 것은 추론입니다.
+- 서버를 켠 뒤 첫 분석은 모델을 불러오느라 더 오래 걸립니다.
+- 브라우저 안의 시간(전송을 시작한 뒤 백엔드에 도착할 때까지)은 백엔드에서 잴 수 없습니다. `roadpush.http`의 POST 시간에는 전송 시간이 포함됩니다.
+
+## 6. 주의
 
 - **노트북이 꺼지거나 잠들면 서비스가 멈춥니다.** 백엔드 창과 Tailscale 트레이 앱이 켜져 있는지 확인합니다.
 - Supabase 무료 플랜은 오래 쓰지 않으면 일시정지될 수 있어 심사 기간 중 대시보드를 확인합니다 ([DB.md 1장](DB.md)).

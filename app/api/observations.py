@@ -2,8 +2,10 @@
 F1 관측 등록·구간 확인 · F2 분석 상태 · F4 상세 · F5 확인·수정·취소 · F7 검수 표 · 메모 · 삭제
 """
 
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
+from time import perf_counter
 
 import cv2
 import numpy as np
@@ -34,6 +36,7 @@ from .schemas import ObservationOut as Out
 from .sites import site_candidates
 
 router = APIRouter(prefix="/observations", tags=["observations"])
+log = logging.getLogger("roadpush.upload")
 
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 VIDEO_EXT = {".mp4", ".mov", ".avi", ".mkv"}
@@ -113,9 +116,11 @@ async def create_observation(
     else:
         raise HTTPException(422, "구간을 확인해 주세요: site_id(기존 구간) 또는 new_site_name(신규 구간)")
 
+    start = perf_counter()
     data = await file.read()
     if media == "image" and cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR) is None:
         raise HTTPException(422, "이미지를 읽을 수 없습니다 (손상 또는 지원하지 않는 형식)")
+    decoded = perf_counter()
 
     obs = Observation(
         site_id=site.id,
@@ -137,8 +142,18 @@ async def create_observation(
     obs.original_key = st.put_bytes(f"observations/{obs.id}/original{ext}", data)
     if mask is not None:
         st.put_bytes(f"observations/{obs.id}/mask.png", await mask.read())
+    saved = perf_counter()
     db.add(Analysis(observation_id=obs.id, trigger="initial"))
     db.commit()
+    log.info(
+        "업로드 %s (%s) %.0f KB · 파일 읽기·확인 %.0fms · 원본 저장 %.0fms · DB 저장 %.0fms",
+        obs.id,
+        site.id,
+        len(data) / 1024,
+        (decoded - start) * 1000,
+        (saved - decoded) * 1000,
+        (perf_counter() - saved) * 1000,
+    )
     return one(db, obs.id, request)
 
 

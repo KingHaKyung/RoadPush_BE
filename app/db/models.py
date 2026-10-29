@@ -135,9 +135,16 @@ class Analysis(Base):
     files: Mapped[dict] = mapped_column(Json, default=dict)  # {"surface_overlay": key, ...}
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 워커가 집은 시각 (마지막 시도)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     observation: Mapped[Observation] = relationship(back_populates="analyses")
+
+    @property
+    def timings(self) -> dict | None:
+        """단계별 처리 시간(초). 워커가 evidence.timings에 남긴다"""
+        return (self.evidence or {}).get("timings")
+
     reviews: Mapped[list["Review"]] = relationship(order_by="Review.created_at")
 
 

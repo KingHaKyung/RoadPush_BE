@@ -16,6 +16,7 @@ storage/
 model_weights/*
 !model_weights/README.md
 outputs/
+logs/
 work/
 data/*
 !data/roadpush_seongnam_nodelink.geojson
