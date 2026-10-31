@@ -24,6 +24,7 @@ from .deps import file_url_for
 from .schemas import (
     AnalysisOut,
     InspectOut,
+    NoteEditIn,
     NoteIn,
     Passability,
     ProcessingStatus,
@@ -287,6 +288,23 @@ def add_note(obs_id: str, body: NoteIn, request: Request, db: Session = Depends(
         raise HTTPException(422, "메모 내용이 비어 있습니다")
     db.add(ObservationNote(observation_id=obs_id, content=content, author=body.author))
     db.commit()
+    return one(db, obs_id, request)
+
+
+@router.patch("/{obs_id}/notes/{note_id}", response_model=Out)
+def edit_note(obs_id: str, note_id: str, body: NoteEditIn, request: Request, db: Session = Depends(get_db)):
+    """메모 고치기. 내용을 바꾸고 edited_at을 남긴다 (작성 시각·작성자는 그대로, 지우기는 없음)"""
+    load(db, obs_id)
+    note = db.get(ObservationNote, note_id)
+    if note is None or note.observation_id != obs_id:
+        raise HTTPException(404, "이 관측의 메모가 아닙니다")
+    content = body.content.strip()
+    if not content:
+        raise HTTPException(422, "메모 내용이 비어 있습니다")
+    if content != note.content:
+        note.content = content
+        note.edited_at = datetime.now(UTC)
+        db.commit()
     return one(db, obs_id, request)
 
 

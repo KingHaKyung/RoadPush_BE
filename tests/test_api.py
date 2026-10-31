@@ -1,4 +1,5 @@
 import io
+from datetime import UTC, datetime, timedelta
 
 import cv2
 import numpy as np
@@ -150,6 +151,36 @@ def test_note_goes_to_history_without_changing_state():
         assert c.post(f"{API}/observations/obs_none/notes", json={"content": "x"}).status_code == 404
 
 
+def test_edit_note_records_edited_at():
+    with TestClient(app) as c:
+        s = _site(c, "메모 수정 구간")
+        oid = _post(c, seed=8, site_id=s["id"]).json()["observation_id"]
+        other = _post(c, seed=9, site_id=s["id"]).json()["observation_id"]
+        drain()
+        o = c.post(f"{API}/observations/{oid}/notes", json={"content": "접수번호 1234", "author": "교통행정과"}).json()
+        note = next(h for h in o["history"] if h["id"])
+        assert note["id"].startswith("note_") and note["edited_at"] is None
+        assert note["content"] == "접수번호 1234" and note["author"] == "교통행정과"
+        assert note["created_at"].endswith("+09:00")
+        assert all(h["id"] is None and h["edited_at"] is None for h in o["history"] if h is not note)
+
+        url = f"{API}/observations/{oid}/notes/{note['id']}"
+        r = c.patch(url, json={"content": " 접수번호 1235 "})
+        assert r.status_code == 200
+        edited = next(h for h in r.json()["history"] if h["id"] == note["id"])
+        assert edited["txt"] == "메모: 접수번호 1235" and edited["content"] == "접수번호 1235"
+        assert edited["edited_at"].endswith("+09:00")
+        assert edited["created_at"] == note["created_at"] and edited["t"] == note["t"]
+        assert edited["author"] == "교통행정과"
+        # 목록 응답에도 같은 값
+        listed = next(x for x in c.get(f"{API}/observations").json() if x["observation_id"] == oid)
+        assert next(h for h in listed["history"] if h["id"] == note["id"])["edited_at"] == edited["edited_at"]
+
+        assert c.patch(url, json={"content": "  "}).status_code == 422
+        assert c.patch(f"{API}/observations/{other}/notes/{note['id']}", json={"content": "x"}).status_code == 404
+        assert c.patch(f"{API}/observations/{oid}/notes/note_none", json={"content": "x"}).status_code == 404
+
+
 def test_action_and_before_after_compare():
     with TestClient(app) as c:
         s = _site(c, "전후 비교 구간")
@@ -261,6 +292,18 @@ def test_location_is_site_point_so_frontend_groups_by_site():
         assert a["capture_location"] == {"latitude": LAT + 0.00003, "longitude": LNG - 0.00002}
         nogps = _post(c, seed=10, site_id=s["id"], lat=None, lng=None).json()
         assert nogps["location"] == a["location"] and nogps["capture_location"] is None
+
+
+def test_created_at_is_registration_time_not_capture_time():
+    with TestClient(app) as c:
+        s = _site(c, "등록 시각 구간")
+        before = datetime.now(UTC)
+        a = _post(c, seed=11, site_id=s["id"]).json()
+        assert a["captured_at"] == "2026-10-18T14:32:00+09:00"
+        assert a["created_at"].endswith("+09:00")
+        assert datetime.fromisoformat(a["created_at"]) >= before - timedelta(seconds=1)
+        listed = next(o for o in c.get(f"{API}/observations").json() if o["observation_id"] == a["observation_id"])
+        assert listed["created_at"] == a["created_at"]
 
 
 VWORLD_OK = {

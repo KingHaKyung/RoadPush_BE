@@ -95,7 +95,18 @@ def observation_out(obs: Observation, url: FileUrl, action: Action | None = None
                 txt = "검수 취소"
             hist.append(HistoryItem(t=r.created_at, txt=txt + (f" · {r.comment}" if r.comment else ""), by=r.reviewer))
     for n in obs.notes:
-        hist.append(HistoryItem(t=n.created_at, txt=f"메모: {n.content}", by=n.author))
+        hist.append(
+            HistoryItem(
+                t=n.created_at,
+                txt=f"메모: {n.content}",
+                by=n.author,
+                id=n.id,
+                content=n.content,
+                author=n.author,
+                created_at=local(n.created_at),
+                edited_at=local(n.edited_at) if n.edited_at else None,
+            )
+        )
     if action:
         for lg in action.logs:
             txt = f"처리 상태: {ACTION_LABEL[lg.state]}" + (f" ({lg.dept})" if lg.dept else "")
@@ -130,6 +141,7 @@ def observation_out(obs: Observation, url: FileUrl, action: Action | None = None
         link_id=obs.site.link_id,
         source=obs.source,
         device=obs.device,
+        created_at=local(obs.created_at),
         capture_location=cap,
         location_source=obs.location_source,
         area=obs.area,

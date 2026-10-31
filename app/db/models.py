@@ -216,6 +216,7 @@ class ObservationNote(Base):
     content: Mapped[str] = mapped_column(Text)
     author: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 마지막 수정 시각. 수정 안 했으면 NULL
 
 
 class RiskPolicy(Base):

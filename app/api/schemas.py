@@ -55,6 +55,12 @@ class HistoryItem(BaseModel):
     txt: str
     ai: bool = False
     by: str | None = None
+    # 아래는 메모 항목에만 채운다 (다른 항목은 null). 메모 수정은 PATCH /observations/{id}/notes/{note_id}
+    id: str | None = Field(None, description="메모 id")
+    content: str | None = Field(None, description="메모 내용 (txt는 '메모: 내용')")
+    author: str | None = None
+    created_at: datetime | None = None
+    edited_at: datetime | None = Field(None, description="마지막 수정 시각. 수정 안 했으면 null")
 
 
 class ProvisionalEstimate(BaseModel):
@@ -84,6 +90,7 @@ class ObservationOut(BaseModel):
     link_id: str | None = None
     source: str
     device: str | None = None
+    created_at: datetime | None = Field(None, description="백엔드에 등록된 시각 (+09:00). captured_at은 사진 촬영 시각")
     capture_location: Location | None = Field(None, description="사진 촬영 좌표 (location은 구간 대표 위치)")
     location_source: str | None = Field(None, description="capture_location의 출처: exif | manual | device")
     area: str | None = None
@@ -181,6 +188,10 @@ class ReviewCancelIn(BaseModel):
 class NoteIn(BaseModel):
     content: str = Field(..., min_length=1, description="메모 내용 (처리 상태는 바꾸지 않음)")
     author: str | None = None
+
+
+class NoteEditIn(BaseModel):
+    content: str = Field(..., min_length=1, description="고친 메모 내용")
 
 
 class ReanalyzeIn(BaseModel):

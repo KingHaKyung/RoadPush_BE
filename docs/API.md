@@ -25,6 +25,7 @@
 | F5 | `POST /observations/{id}/reviews` | 확인(의견) / 수정(사람 판정 + 이유). 분석 단위로 저장 |
 | F5 | `POST /observations/{id}/reviews/cancel` | 확인·수정 취소 → 미검수 (이력은 남김) |
 | | `POST /observations/{id}/notes` | 메모. 처리 상태·검수는 바꾸지 않고 `history`에 남음 |
+| | `PATCH /observations/{id}/notes/{note_id}` | 메모 고치기 `{content}` → `edited_at` 기록. 다른 관측의 메모면 404 (지우기는 없음) |
 | | `DELETE /observations/{id}` | 잘못 올린 관측 삭제(관리용, 되돌릴 수 없음) → 204. 분석·검수·메모·조치·사진 파일까지. 분석 중이면 409 |
 | F5 | `POST /observations/{id}/action` | 처리 상태 변경 (이 관측을 '조치 전'으로 하는 조치를 만들거나 갱신) |
 | F5 | `POST /observations/bulk-action` | 여러 관측 일괄 처리 |
@@ -150,6 +151,7 @@ sequenceDiagram
   // ── 추가 ──
   "site_name": "서현로 18길", "link_id": "2060113500",
   "source": "upload", "device": null,
+  "created_at": "2026-10-20T14:31:05+09:00",   // 백엔드에 등록된 시각 (captured_at은 사진 촬영 시각)
   "capture_location": { "latitude": 37.38683, "longitude": 127.12735 },  // 사진 촬영 좌표, 없으면 null
   "location_source": "exif",                 // capture_location의 출처
   "area": "분당구 이매동", "addr": "경기도 성남시 분당구 이매동 129-1 (행정동 이매1동)",  // 비어 있으면 자동 채움
@@ -214,6 +216,13 @@ sequenceDiagram
 // POST /observations/{id}/notes   → 201
 { "content": "운영사 수거 요청 접수번호 1234", "author": "교통행정과" }
 
+// PATCH /observations/{id}/notes/{note_id}   → 200, 관측 전체 (내용이 같으면 edited_at은 그대로)
+{ "content": "운영사 수거 요청 접수번호 1235" }
+// history의 메모 항목 (다른 항목은 id·content·author·created_at·edited_at이 null)
+{ "t": "2026-10-21T12:03:00+09:00", "txt": "메모: 운영사 수거 요청 접수번호 1235", "ai": false, "by": "교통행정과",
+  "id": "note_…", "content": "운영사 수거 요청 접수번호 1235", "author": "교통행정과",
+  "created_at": "2026-10-21T12:03:00+09:00", "edited_at": "2026-10-21T15:40:12+09:00" }   // 수정 안 했으면 null → "(수정됨)" 표시 기준
+
 // POST /observations/{id}/action    state: none | inspection_requested | in_progress | done
 { "state": "inspection_requested", "dept": "주차관리과", "content": "차량 이동 요청", "actor": "교통행정과" }
 
@@ -245,7 +254,7 @@ sequenceDiagram
 | `dev` | `device` | |
 | `lat`, `lng` | `location.latitude/longitude` | 구간 대표 위치. 사진 좌표는 `capture_location` |
 | `area`, `addr` | `area`, `addr` | 비어 있으면 백엔드가 역지오코딩으로 채움 (프론트 `npm run geocode`와 같은 형식) |
-| `t` | `captured_at` | |
+| `t` | `captured_at` | 사진 촬영 시각. 등록 시각은 `created_at` |
 | `pass` | `passability` | `undetermined` ↔ `hold`, 처리 전·실패는 null → 별도 표시 |
 | `risk` | `risk_score` | "상대 위험도"로 표시 권장 (`risk_complete=false`) |
 | `occ` | `occupancy` | |
