@@ -148,6 +148,7 @@ sequenceDiagram
   },
   "review_status": "pending",                // pending(미검수) | confirmed(확인) | corrected(수정) — 최신 분석 기준
   "human_passability": null,                 // corrected일 때 사람 판정
+  "human_causes": null,                      // corrected일 때 사람이 고친 원인 (null이면 causes(AI)를 씀, []는 원인 없음)
   // ── 추가 ──
   "site_name": "서현로 18길", "link_id": "2060113500",
   "source": "upload", "device": null,
@@ -171,7 +172,7 @@ sequenceDiagram
   "analysis_trigger": "initial",             // initial | reanalysis
   "attempts": 1,
   "failure_reason": null,                    // failed일 때 한 줄 사유
-  "review": null,                            // { id, analysis_id, status, human_passability, comment, reviewer, created_at }
+  "review": null,                            // { id, analysis_id, status, human_passability, human_causes, comment, reviewer, created_at }
   "action": { "action_id": null, "state": "none", "label": "미처리", "dept": null },
   "history": [{ "t": "2026-10-21T11:56:14+09:00", "txt": "AI 분석 완료 · 좁아짐 (상대 위험도 55)", "ai": true, "by": null }],
   "model_version": "mask2former_mapillary_swin_large@cpu + yolo11n-seg + obstacle_v2_yolo11s_full_os4",
@@ -203,6 +204,8 @@ sequenceDiagram
 // POST /observations/{id}/reviews     (analysis_id 생략 = 최신 완료 분석)
 { "status": "confirmed", "comment": "현장 사진과 일치", "reviewer": "교통행정과" }
 { "status": "corrected", "human_passability": "blocked", "comment": "차량 뒤쪽 보도까지 막힘", "reviewer": "교통행정과" }
+// 원인도 고칠 때 (선택, corrected에서만): 차량 | 공사시설 | 적치물 | PM. 생략하면 AI 원인 그대로, []는 원인 없음
+{ "status": "corrected", "human_passability": "blocked", "human_causes": ["차량", "적치물"], "reviewer": "교통행정과" }
 
 // POST /observations/{id}/reviews/cancel   (body 생략 가능. 검수가 없거나 이미 취소면 409)
 { "comment": "판정 실수", "reviewer": "교통행정과" }

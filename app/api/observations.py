@@ -253,6 +253,10 @@ def add_review(obs_id: str, body: ReviewIn, request: Request, db: Session = Depe
             analysis_id=ana.id,
             status=body.status,
             human_passability=body.human_passability if body.status == "corrected" else None,
+            # 중복은 빼고 순서는 유지
+            human_causes=list(dict.fromkeys(body.human_causes))
+            if body.status == "corrected" and body.human_causes is not None
+            else None,
             comment=body.comment,
             reviewer=body.reviewer,
         )

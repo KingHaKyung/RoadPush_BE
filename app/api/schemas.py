@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 ProcessingStatus = Literal["pending", "processing", "completed", "failed"]
 Passability = Literal["passable", "narrowed", "blocked", "undetermined"]
 ReviewStatus = Literal["pending", "confirmed", "corrected"]
+Cause = Literal["차량", "공사시설", "적치물", "PM"]  # ai_engine/labels.py CAUSES와 같다
 ActionState = Literal["none", "inspection_requested", "in_progress", "done"]
 
 ACTION_LABEL = {
@@ -38,6 +39,7 @@ class ReviewOut(BaseModel):
     analysis_id: str
     status: Literal["confirmed", "corrected"]
     human_passability: Passability | None
+    human_causes: list[str] | None = Field(None, description="사람이 고친 원인 (null이면 AI causes 그대로)")
     comment: str | None
     reviewer: str | None
     created_at: datetime
@@ -85,6 +87,9 @@ class ObservationOut(BaseModel):
     images: Images
     review_status: ReviewStatus
     human_passability: Passability | None
+    human_causes: list[str] | None = Field(
+        None, description="corrected일 때 사람이 고친 원인. null이면 causes(AI)를 씀"
+    )
     # ── 추가 정보 ──
     site_name: str
     link_id: str | None = None
@@ -174,6 +179,9 @@ class InspectOut(BaseModel):
 class ReviewIn(BaseModel):
     status: Literal["confirmed", "corrected"]
     human_passability: Passability | None = None
+    human_causes: list[Cause] | None = Field(
+        None, description="corrected일 때 원인 고치기 (빈 배열 = 원인 없음, 생략·null = AI 원인 그대로)"
+    )
     comment: str | None = Field(None, description="확인 의견 또는 수정 이유")
     reviewer: str | None = None
     analysis_id: str | None = Field(None, description="비우면 최신 완료 분석")

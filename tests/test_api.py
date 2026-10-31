@@ -151,6 +151,35 @@ def test_note_goes_to_history_without_changing_state():
         assert c.post(f"{API}/observations/obs_none/notes", json={"content": "x"}).status_code == 404
 
 
+def test_review_human_causes():
+    with TestClient(app) as c:
+        s = _site(c, "원인 수정 구간")
+        oid = _post(c, seed=12, site_id=s["id"]).json()["observation_id"]
+        drain()
+        url = f"{API}/observations/{oid}/reviews"
+        o = c.post(url, json={"status": "corrected", "human_passability": "blocked"}).json()
+        assert o["human_causes"] is None and o["review"]["human_causes"] is None  # 생략 = AI 원인 그대로
+
+        o = c.post(
+            url,
+            json={"status": "corrected", "human_passability": "narrowed", "human_causes": ["적치물", "차량", "적치물"]},
+        ).json()
+        assert o["human_causes"] == ["적치물", "차량"] and o["review"]["human_causes"] == ["적치물", "차량"]
+        assert any(h["txt"] == "판정 수정 → 좁아짐 · 원인 적치물·차량" for h in o["history"])
+
+        o = c.post(url, json={"status": "corrected", "human_passability": "passable", "human_causes": []}).json()
+        assert o["human_causes"] == [] and any(h["txt"].endswith("원인 없음") for h in o["history"])
+
+        o = c.post(url, json={"status": "confirmed", "human_causes": ["차량"]}).json()
+        assert o["human_causes"] is None  # 확인은 원인을 고치지 않음
+        assert (
+            c.post(
+                url, json={"status": "corrected", "human_passability": "blocked", "human_causes": ["고양이"]}
+            ).status_code
+            == 422
+        )
+
+
 def test_edit_note_records_edited_at():
     with TestClient(app) as c:
         s = _site(c, "메모 수정 구간")

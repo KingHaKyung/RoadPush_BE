@@ -166,6 +166,8 @@ class Review(Base):
     analysis_id: Mapped[str] = mapped_column(ForeignKey("analyses.id"), index=True)
     status: Mapped[str] = mapped_column(String(16))  # confirmed | corrected | cancelled
     human_passability: Mapped[str | None] = mapped_column(String(16))
+    # 사람이 고친 원인 배지 (analyses.causes와 같은 형식, 예: ["차량", "적치물"]). NULL이면 AI 원인을 그대로 둔 것
+    human_causes: Mapped[list | None] = mapped_column(Json)
     comment: Mapped[str | None] = mapped_column(Text)  # 확인 의견 또는 수정 이유
     reviewer: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

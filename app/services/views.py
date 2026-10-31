@@ -91,6 +91,8 @@ def observation_out(obs: Observation, url: FileUrl, action: Action | None = None
                 txt = "AI 판정 확인"
             elif r.status == "corrected":
                 txt = f"판정 수정 → {PASS_LABEL.get(r.human_passability or '')}"
+                if r.human_causes is not None:
+                    txt += f" · 원인 {'·'.join(r.human_causes) or '없음'}"
             else:
                 txt = "검수 취소"
             hist.append(HistoryItem(t=r.created_at, txt=txt + (f" · {r.comment}" if r.comment else ""), by=r.reviewer))
@@ -137,6 +139,7 @@ def observation_out(obs: Observation, url: FileUrl, action: Action | None = None
         ),
         review_status=rev.status if rev else "pending",
         human_passability=rev.human_passability if rev and rev.status == "corrected" else None,
+        human_causes=rev.human_causes if rev and rev.status == "corrected" else None,
         site_name=obs.site.name,
         link_id=obs.site.link_id,
         source=obs.source,
@@ -166,6 +169,7 @@ def observation_out(obs: Observation, url: FileUrl, action: Action | None = None
             analysis_id=rev.analysis_id,
             status=rev.status,
             human_passability=rev.human_passability,
+            human_causes=rev.human_causes,
             comment=rev.comment,
             reviewer=rev.reviewer,
             created_at=local(rev.created_at),
